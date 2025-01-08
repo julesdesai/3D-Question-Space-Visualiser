@@ -66,6 +66,7 @@ const Graph = ({ data }) => {
               position={nodePositions[id]}
               summary={node.summary}
               content={node.content}
+              node_type={node.node_type}
               selected={selectedNode === node}
               onClick={() => {
                 console.log('Node clicked:', node.summary);
