@@ -30,59 +30,92 @@ const NODE_TYPES = {
   }
 };
 
-const Node = ({ position, summary, content, selected, onClick, node_type }) => {
+const Node = ({ 
+  position, 
+  summary, 
+  content, 
+  node_type, 
+  selected, 
+  onClick,
+  relationToSelected 
+}) => {
   const nodeStyle = NODE_TYPES[node_type] || NODE_TYPES.thesis;
   const color = selected ? nodeStyle.selectedColor : nodeStyle.color;
   const htmlRef = useRef();
   const meshRef = useRef();
 
+  // Calculate visibility based on relationship
+  const isFamily = relationToSelected === 'parent' || 
+                  relationToSelected === 'child' || 
+                  relationToSelected === 'selected' ||
+                  relationToSelected === 'sibling';
+
   useFrame(({ camera }) => {
-    if (htmlRef.current) {
+    if (htmlRef.current && meshRef.current) {
       const distance = camera.position.distanceTo(meshRef.current.position);
-      const opacity = 1 - Math.min(Math.max((distance - 8) / 15, 0), 0.8);
-      htmlRef.current.style.opacity = opacity;
+      
+      // Make unrelated nodes very faint
+      let opacity = isFamily ? 1 : 0.1;
+      
+      // Apply distance-based fading only to family nodes
+      if (isFamily) {
+        opacity *= 1 - Math.min(Math.max((distance - 8) / 15, 0), 0.5);
+      }
+
+      // Hide labels completely for non-family nodes
+      htmlRef.current.style.opacity = isFamily ? opacity : 0;
+      
+      // Scale nodes based on relationship
+      const scale = selected ? 1.2 : 
+                   isFamily ? 1 : 0.5;
+      meshRef.current.scale.setScalar(scale);
     }
   });
 
-  const handleClick = (event) => {
-    event.stopPropagation();
-    onClick();
-  };
-
   return (
-    <mesh position={position} onClick={handleClick} ref={meshRef}>
+    <mesh
+      position={position}
+      onClick={onClick}
+      ref={meshRef}
+    >
       <sphereGeometry args={[nodeStyle.size, 32, 32]} />
       <meshStandardMaterial 
         color={color}
+        transparent
+        opacity={isFamily ? 0.9 : 0.1}
         roughness={0.7}
         metalness={0.3}
       />
       <Html position={[0, nodeStyle.size + 0.3, 0]}>
         <div 
           ref={htmlRef}
-          onClick={handleClick}
+          onClick={onClick}
           style={{
             background: '#262626',
-            padding: '0.5rem 0.75rem',
-            borderRadius: '0.25rem',
+            padding: '0.75rem 1rem',  // Increased padding
+            borderRadius: '0.375rem',
             boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
             fontFamily: 'Crimson Text, Georgia, serif',
             color: '#f5f5f5',
-            fontSize: '0.875rem',
-            whiteSpace: 'nowrap',
-            maxWidth: '200px',
+            fontSize: '1rem',  // Increased font size
+            whiteSpace: 'normal',  // Allow text to wrap
+            maxWidth: '300px',     // Increased max width
+            width: 'max-content',  // Adjust width to content
+            minWidth: '200px',     // Minimum width
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             cursor: 'pointer',
-            transition: 'background-color 0.2s',
-            transform: 'translate(-50%, -50%)',
-            userSelect: 'none'
+            transition: 'opacity 0.3s ease',
+            transform: `translate(-50%, -50%) scale(${selected ? 1.2 : 1})`,
+            userSelect: 'none',
+            display: isFamily ? 'block' : 'none',
+            lineHeight: '1.4'      // Better line height for readability
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = '#363636';
+            if (isFamily) e.currentTarget.style.backgroundColor = '#363636';
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = '#262626';
+            if (isFamily) e.currentTarget.style.backgroundColor = '#262626';
           }}
         >
           <span style={{ fontWeight: 'bold', marginRight: '4px' }}>{nodeStyle.prefix}</span>

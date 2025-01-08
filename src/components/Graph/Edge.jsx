@@ -2,7 +2,7 @@
 import React from 'react';
 import * as THREE from 'three';
 
-const Edge = ({ start, end }) => {
+const Edge = ({ start, end, isRelated }) => {
   const points = [
     new THREE.Vector3(...start),
     new THREE.Vector3(...end),
@@ -12,7 +12,12 @@ const Edge = ({ start, end }) => {
   
   return (
     <line geometry={lineGeometry}>
-      <lineBasicMaterial color="#999999" />
+      <lineBasicMaterial 
+        color={isRelated ? "#4a5568" : "#2a2a2a"}
+        linewidth={2} 
+        opacity={isRelated ? 0.8 : 0.1} 
+        transparent={true} 
+      />
     </line>
   );
 };
