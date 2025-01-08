@@ -9,7 +9,10 @@ function App() {
   useEffect(() => {
     const loadGraphData = async () => {
       try {
-        const response = await fetch('/graph.json');
+        // Get the base URL for the current environment
+        const baseUrl = process.env.PUBLIC_URL || '';
+        const response = await fetch(`${baseUrl}/graph.json`);
+        
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
@@ -17,7 +20,7 @@ function App() {
         setGraphData(data);
       } catch (err) {
         console.error('Error loading graph data:', err);
-        setError('Failed to load graph data. Please ensure the graph data file is properly formatted and accessible.');
+        setError(`Failed to load graph data. Error: ${err.message}`);
       }
     };
 
@@ -26,7 +29,7 @@ function App() {
 
   if (error) {
     return (
-      <div className="w-screen h-screen flex items-center justify-center bg-gray-50">
+      <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="bg-white p-6 rounded-lg shadow-lg max-w-md">
           <div className="text-red-600 font-semibold mb-2">Error Loading Graph</div>
           <div className="text-gray-600">{error}</div>
@@ -37,7 +40,7 @@ function App() {
 
   if (!graphData) {
     return (
-      <div className="w-screen h-screen flex items-center justify-center bg-gray-50">
+      <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="text-gray-600 flex items-center">
           <svg className="animate-spin h-5 w-5 mr-3" viewBox="0 0 24 24">
             <circle 
@@ -62,7 +65,7 @@ function App() {
   }
 
   return (
-    <div className="w-screen h-screen overflow-hidden">
+    <div className="App">
       <Graph data={graphData} />
     </div>
   );

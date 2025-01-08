@@ -2,7 +2,7 @@
   "name": "graph-visualization",
   "version": "0.1.0",
   "private": true,
-  "homepage": "https://julesdesai.github.io/graph-visualization",
+  "homepage": "https://julesdesai.github.io/3D-Question-Space-Visualiser/",
   "dependencies": {
     "@react-three/drei": "^9.x",
     "@react-three/fiber": "^8.x",
