@@ -1,4 +1,3 @@
-// src/components/UI/AncestryPanel.jsx
 import React from 'react';
 
 const AncestryPanel = ({ node, graphData }) => {
@@ -59,7 +58,7 @@ const AncestryPanel = ({ node, graphData }) => {
               position: 'relative',
               marginBottom: '1rem',
               paddingLeft: '1.5rem',
-              borderLeft: `2px solid ${index === ancestry.length - 1 ? '#6366f1' : '#404040'}`
+              borderLeft: `2px solid ${index === ancestry.length - 1 ? '#ec4899' : '#404040'}`
             }}
           >
             <div style={{
