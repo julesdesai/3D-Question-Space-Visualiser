@@ -1,13 +1,13 @@
 {
   "files": {
-    "main.css": "/3D-Question-Space-Visualiser/static/css/main.c3508d37.css",
-    "main.js": "/3D-Question-Space-Visualiser/static/js/main.b995f941.js",
+    "main.css": "/3D-Question-Space-Visualiser/static/css/main.721f926a.css",
+    "main.js": "/3D-Question-Space-Visualiser/static/js/main.d39aaa36.js",
     "index.html": "/3D-Question-Space-Visualiser/index.html",
-    "main.c3508d37.css.map": "/3D-Question-Space-Visualiser/static/css/main.c3508d37.css.map",
-    "main.b995f941.js.map": "/3D-Question-Space-Visualiser/static/js/main.b995f941.js.map"
+    "main.721f926a.css.map": "/3D-Question-Space-Visualiser/static/css/main.721f926a.css.map",
+    "main.d39aaa36.js.map": "/3D-Question-Space-Visualiser/static/js/main.d39aaa36.js.map"
   },
   "entrypoints": [
-    "static/css/main.c3508d37.css",
-    "static/js/main.b995f941.js"
+    "static/css/main.721f926a.css",
+    "static/js/main.d39aaa36.js"
   ]
 }
