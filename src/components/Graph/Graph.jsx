@@ -18,7 +18,6 @@ const Node = ({
   onNodeClick, 
   activePath = [],
   depth = 0,
-  isProgressiveMode,
   onNodeRef
 }) => {
   const nodeRef = useRef(null);
@@ -35,8 +34,7 @@ const Node = ({
 
   const isInPath = activePath.includes(id);
   const parentId = data[id]?.parent_id;
-  
-  const shouldShow = isProgressiveMode || depth === 0 || isInPath || (parentId && activePath.includes(parentId));
+  const shouldShow = depth === 0 || isInPath || (parentId && activePath.includes(parentId));
   const showLabel = isInPath;
 
   if (!shouldShow) return null;
@@ -89,7 +87,6 @@ const Node = ({
                 onNodeClick={onNodeClick}
                 activePath={activePath}
                 depth={depth + 1}
-                isProgressiveMode={isProgressiveMode}
                 onNodeRef={onNodeRef}
               />
             ))}
@@ -103,10 +100,11 @@ const Node = ({
 const Graph = ({ data }) => {
   const [activePath, setActivePath] = useState([]);
   const [selectedNode, setSelectedNode] = useState(null);
-  const [isProgressiveMode, setIsProgressiveMode] = useState(false);
   const [nodeRefs, setNodeRefs] = useState(new Map());
   const containerRef = useRef(null);
   const [containerOffset, setContainerOffset] = useState({ x: 0, y: 0 });
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
   const handleNodeRef = (id, element) => {
     setNodeRefs(prev => new Map(prev.set(id, element)));
@@ -117,52 +115,78 @@ const Graph = ({ data }) => {
     const container = containerRef.current;
     
     if (nodeElement && container) {
-      const scrollContainer = container.firstElementChild;
+      // Store the current scroll position
+      const currentScroll = {
+        top: container.scrollTop,
+        left: container.scrollLeft
+      };
+
+      // Temporarily remove transform to get true positions
+      const contentContainer = container.querySelector('.transition-transform');
+      if (!contentContainer) return;
       
-      // Get the current positions
-      const nodeRect = nodeElement.getBoundingClientRect();
+      contentContainer.style.transition = 'none';
+      contentContainer.style.transform = 'translate(0, 0)';
+      
+      // Force browser to process the reset
+      contentContainer.getBoundingClientRect();
+
+      const nodeDot = nodeElement.querySelector('.rounded-full');
+      if (!nodeDot) {
+        // Restore transform if we can't find the node
+        contentContainer.style.transform = `translate(${containerOffset.x}px, ${containerOffset.y}px)`;
+        contentContainer.style.transition = '';
+        return;
+      }
+
+      // Get clean measurements
       const containerRect = container.getBoundingClientRect();
-      const headerHeight = 72; // Height of the fixed header
+      const nodeDotRect = nodeDot.getBoundingClientRect();
 
-      // Calculate center point, accounting for the header
-      const centerY = (containerRect.height - headerHeight) / 2 + headerHeight;
-      const centerX = containerRect.width / 2;
+      // Calculate the absolute center position
+      const targetX = containerRect.width / 2 - (nodeDotRect.left - containerRect.left + nodeDotRect.width / 2);
+      const targetY = containerRect.height / 2 - (nodeDotRect.top - containerRect.top + nodeDotRect.height / 2);
 
-      // Calculate the node's absolute position relative to the container
-      const nodeTop = nodeElement.offsetTop;
-      const nodeLeft = nodeElement.offsetLeft;
-      
-      // Calculate the required offset to center the node
-      const targetX = centerX - nodeLeft;
-      const targetY = centerY - nodeTop;
+      // Restore transition and apply new transform
+      contentContainer.style.transition = '';
+      setContainerOffset({ x: targetX, y: targetY });
 
-      // Apply different positioning logic based on view mode
-      if (isProgressiveMode) {
-        // In full structure view, ensure the entire graph is visible
-        const graphBounds = container.querySelector('.flex.justify-center')?.getBoundingClientRect();
-        if (graphBounds) {
-          const scaleX = containerRect.width / graphBounds.width;
-          const scaleY = containerRect.height / graphBounds.height;
-          const scale = Math.min(scaleX, scaleY, 1); // Don't scale up, only down if needed
-          
-          // Adjust position based on scale
-          setContainerOffset({
-            x: targetX * scale,
-            y: targetY * scale
-          });
-        }
-      } else {
-        // In focused view, center precisely on the node
-        setContainerOffset({ x: targetX, y: targetY });
-      }
-
-      // Reset scroll position
-      if (scrollContainer) {
-        scrollContainer.scrollTop = 0;
-        scrollContainer.scrollLeft = 0;
-      }
+      // Restore scroll position
+      container.scrollTop = currentScroll.top;
+      container.scrollLeft = currentScroll.left;
     }
   };
+
+  const handleMouseDown = (e) => {
+    if (e.button !== 0) return; // Only handle left click
+    setIsDragging(true);
+    setDragStart({
+      x: e.clientX - containerOffset.x,
+      y: e.clientY - containerOffset.y
+    });
+  };
+
+  const handleMouseMove = (e) => {
+    if (!isDragging) return;
+    
+    setContainerOffset({
+      x: e.clientX - dragStart.x,
+      y: e.clientY - dragStart.y
+    });
+  };
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  useEffect(() => {
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDragging, dragStart]);
 
   const handleNodeClick = (nodeId) => {
     const findPath = (targetId, path = []) => {
@@ -262,37 +286,22 @@ const Graph = ({ data }) => {
         >
           Knowledge Graph
         </h2>
-        <button
-          onClick={() => {
-            setIsProgressiveMode(!isProgressiveMode);
-            // Reset position when toggling view mode
-            setTimeout(() => {
-              const currentId = Object.entries(data).find(([_, n]) => n === selectedNode)?.[0];
-              if (currentId) centerOnNode(currentId);
-            }, 50);
-          }}
-          style={{
-            fontFamily: 'Crimson Text, Georgia, serif',
-            backgroundColor: '#262626'
-          }}
-          className={`
-            px-4 py-2 rounded-lg text-sm transition-colors duration-300
-            ${isProgressiveMode ? 'text-pink-400 border-pink-400' : 'text-gray-400 border-gray-600'}
-            border
-          `}
-        >
-          {isProgressiveMode ? 'Full Structure' : 'Focused View'}
-        </button>
       </div>
 
       {/* Main Content Area */}
       <div className="flex flex-1 relative">
-        <div className="flex-1 relative overflow-hidden" ref={containerRef}>
+        <div 
+          className="flex-1 relative overflow-hidden" 
+          ref={containerRef}
+          onMouseDown={handleMouseDown}
+          style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
+        >
           <div className="absolute inset-0 overflow-hidden">
             <div
               className="w-full h-full transition-transform duration-300 ease-in-out"
               style={{ 
-                transform: `translate(${containerOffset.x}px, ${containerOffset.y}px)` 
+                transform: `translate(${containerOffset.x}px, ${containerOffset.y}px)`,
+                pointerEvents: isDragging ? 'none' : 'auto'
               }}
             >
               <div className="h-full p-8">
@@ -303,7 +312,6 @@ const Graph = ({ data }) => {
                     onNodeClick={handleNodeClick}
                     activePath={activePath}
                     depth={0}
-                    isProgressiveMode={isProgressiveMode}
                     onNodeRef={handleNodeRef}
                   />
                 </div>
@@ -311,21 +319,20 @@ const Graph = ({ data }) => {
             </div>
           </div>
 
+          {/* Fixed UX Controls */}
           <div 
             style={{
               fontFamily: 'Crimson Text, Georgia, serif',
               backgroundColor: '#262626'
             }}
-            className="absolute bottom-5 left-5 text-gray-400 p-4 rounded-lg text-sm"
+            className="fixed bottom-5 left-5 text-gray-400 p-4 rounded-lg text-sm z-10"
           >
             <div>Click node to focus</div>
             <div>Arrow keys to navigate:</div>
             <div>↑ Parent | ↓ Child</div>
             <div>← → Between siblings</div>
             <div>Press 'C' to center on root</div>
-            <div className="mt-2 pt-2 border-t border-gray-600">
-              Toggle view mode to see full structure
-            </div>
+            <div>Click and drag to pan</div>
           </div>
         </div>
 
