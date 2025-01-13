@@ -1,6 +1,7 @@
 // src/App.js
 import React, { useState, useEffect } from 'react';
 import Graph from './components/Graph/Graph';
+import './index.css';
 
 function App() {
   const [graphData, setGraphData] = useState(null);

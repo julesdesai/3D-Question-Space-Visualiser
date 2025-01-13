@@ -8,12 +8,17 @@
     "@react-three/fiber": "^8.x",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-scripts": "5.0.1",
-    "three": "^0.x"
+    "react-scripts": "^5.0.1",
+    "three": "^0.x",
+    "webpack": "^5.97.1",
+    "webpack-cli": "^6.0.1"
   },
   "devDependencies": {
     "@babel/plugin-proposal-private-property-in-object": "^7.21.11",
-    "gh-pages": "^6.0.0"
+    "autoprefixer": "^10.4.20",
+    "gh-pages": "^6.0.0",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.17"
   },
   "scripts": {
     "start": "react-scripts start",
