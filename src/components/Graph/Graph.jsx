@@ -12,13 +12,62 @@ const getNodePrefix = (nodeType) => {
   }
 };
 
+// SVG layer for identical node connections
+const IdenticalConnections = ({ connections, isActive }) => (
+  <svg className="absolute inset-0 pointer-events-none" style={{ overflow: 'visible' }}>
+    {connections.map(({ from, to }, idx) => (
+      <line
+        key={idx}
+        x1={from.x}
+        y1={from.y}
+        x2={to.x}
+        y2={to.y}
+        className={`${isActive ? 'stroke-pink-400' : 'stroke-gray-600'} transition-colors duration-300`}
+        strokeWidth="2"
+        strokeDasharray="4"
+      />
+    ))}
+  </svg>
+);
+
+// X symbol for terminal nodes
+const XSymbol = ({ isActive }) => (
+  <svg className="w-4 h-4" viewBox="0 0 16 16">
+    <line 
+      x1="4" y1="4" 
+      x2="12" y2="12" 
+      stroke={isActive ? '#ec4899' : '#4b5563'} 
+      strokeWidth="2"
+      className="transition-colors duration-300"
+    />
+    <line 
+      x1="12" y1="4" 
+      x2="4" y2="12" 
+      stroke={isActive ? '#ec4899' : '#4b5563'} 
+      strokeWidth="2"
+      className="transition-colors duration-300"
+    />
+  </svg>
+);
+
+// Metadata display component
+const NodeMetadata = ({ node }) => (
+  <div className="mt-4 p-3 rounded-lg bg-gray-800/50">
+    <div className="text-gray-400">Type: <span className="text-gray-200">{node.node_type}</span></div>
+    <div className="text-gray-400">Terminal: <span className="text-gray-200">{(node.nonsense || node.identical_to) ? 'Yes' : 'No'}</span></div>
+    <div className="text-gray-400">Nonsense: <span className="text-gray-200">{node.nonsense ? 'Yes' : 'No'}</span></div>
+    <div className="text-gray-400">Identical To: <span className="text-gray-200">{node.identical_to || 'None'}</span></div>
+  </div>
+);
+
 const Node = ({ 
   id,
   data, 
   onNodeClick, 
   activePath = [],
   depth = 0,
-  onNodeRef
+  onNodeRef,
+  onIdenticalConnection
 }) => {
   const nodeRef = useRef(null);
   
@@ -28,6 +77,20 @@ const Node = ({
     }
   }, [id, onNodeRef]);
 
+  useEffect(() => {
+    if (activePath.includes(id) && data[id]?.identical_to) {
+      const nodeElement = nodeRef.current;
+      if (nodeElement) {
+        const rect = nodeElement.getBoundingClientRect();
+        const fromPosition = {
+          x: rect.left + rect.width/2,
+          y: rect.top + rect.height/2
+        };
+        onIdenticalConnection(id, fromPosition);
+      }
+    }
+  }, [id, activePath, data, onIdenticalConnection]);
+
   const childNodes = Object.entries(data).filter(([_, nodeData]) => 
     nodeData.parent_id === id
   );
@@ -36,6 +99,9 @@ const Node = ({
   const parentId = data[id]?.parent_id;
   const shouldShow = depth === 0 || isInPath || (parentId && activePath.includes(parentId));
   const showLabel = isInPath;
+  const isNonsense = data[id]?.nonsense;
+  const identicalTo = data[id]?.identical_to;
+  const isTerminal = isNonsense || identicalTo;
 
   if (!shouldShow) return null;
 
@@ -52,23 +118,30 @@ const Node = ({
         
         <div className="flex flex-col items-center">
           <div 
-            className={`
-              w-4 h-4 rounded-full border-2 cursor-pointer transition-all duration-300
-              ${isInPath 
-                ? 'border-pink-400 bg-pink-100' 
-                : 'border-gray-600 bg-transparent border-dotted'}
-              hover:border-pink-300
-            `}
+            className="cursor-pointer transition-all duration-300"
             onClick={() => onNodeClick(id)}
-          />
+          >
+            {isTerminal ? (
+              <XSymbol isActive={isInPath} />
+            ) : (
+              <div className={`
+                w-4 h-4 rounded-full border-2
+                ${isInPath 
+                  ? 'border-pink-400 bg-pink-100' 
+                  : 'border-gray-600 bg-transparent border-dotted'}
+                hover:border-pink-300
+              `} />
+            )}
+          </div>
           {showLabel && (
             <div 
               style={{
                 fontFamily: 'Crimson Text, Georgia, serif',
                 fontSize: '1.125rem',
-                lineHeight: '1.6'
+                lineHeight: '1.6',
+                color: isNonsense ? '#ef4444' : '#e5e5e5'
               }}
-              className="mt-2 text-gray-200 text-center max-w-md px-4 transition-opacity duration-300"
+              className="mt-2 text-center max-w-md px-4 transition-opacity duration-300"
             >
               {getNodePrefix(data[id]?.node_type)}{data[id]?.summary || ''}
             </div>
@@ -88,6 +161,7 @@ const Node = ({
                 activePath={activePath}
                 depth={depth + 1}
                 onNodeRef={onNodeRef}
+                onIdenticalConnection={onIdenticalConnection}
               />
             ))}
           </div>
@@ -105,60 +179,76 @@ const Graph = ({ data }) => {
   const [containerOffset, setContainerOffset] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [identicalConnections, setIdenticalConnections] = useState(new Map());
 
   const handleNodeRef = (id, element) => {
     setNodeRefs(prev => new Map(prev.set(id, element)));
   };
+
+  const handleIdenticalConnection = (fromId, fromPosition) => {
+    const toId = data[fromId]?.identical_to;
+    if (toId) {
+      const toNode = nodeRefs.get(toId);
+      if (toNode) {
+        const toRect = toNode.getBoundingClientRect();
+        const toPosition = {
+          x: toRect.left + toRect.width/2,
+          y: toRect.top + toRect.height/2
+        };
+        setIdenticalConnections(prev => new Map(prev.set(fromId, {
+          from: fromPosition,
+          to: toPosition
+        })));
+      }
+    }
+  };
+
+  useEffect(() => {
+    // Clear identical connections when active path changes
+    setIdenticalConnections(new Map());
+  }, [activePath]);
 
   const centerOnNode = (nodeId) => {
     const nodeElement = nodeRefs.get(nodeId);
     const container = containerRef.current;
     
     if (nodeElement && container) {
-      // Store the current scroll position
       const currentScroll = {
         top: container.scrollTop,
         left: container.scrollLeft
       };
 
-      // Temporarily remove transform to get true positions
       const contentContainer = container.querySelector('.transition-transform');
       if (!contentContainer) return;
       
       contentContainer.style.transition = 'none';
       contentContainer.style.transform = 'translate(0, 0)';
       
-      // Force browser to process the reset
       contentContainer.getBoundingClientRect();
 
-      const nodeDot = nodeElement.querySelector('.rounded-full');
+      const nodeDot = nodeElement.querySelector('.rounded-full, svg');
       if (!nodeDot) {
-        // Restore transform if we can't find the node
         contentContainer.style.transform = `translate(${containerOffset.x}px, ${containerOffset.y}px)`;
         contentContainer.style.transition = '';
         return;
       }
 
-      // Get clean measurements
       const containerRect = container.getBoundingClientRect();
       const nodeDotRect = nodeDot.getBoundingClientRect();
 
-      // Calculate the absolute center position
       const targetX = containerRect.width / 2 - (nodeDotRect.left - containerRect.left + nodeDotRect.width / 2);
       const targetY = containerRect.height / 2 - (nodeDotRect.top - containerRect.top + nodeDotRect.height / 2);
 
-      // Restore transition and apply new transform
       contentContainer.style.transition = '';
       setContainerOffset({ x: targetX, y: targetY });
 
-      // Restore scroll position
       container.scrollTop = currentScroll.top;
       container.scrollLeft = currentScroll.left;
     }
   };
 
   const handleMouseDown = (e) => {
-    if (e.button !== 0) return; // Only handle left click
+    if (e.button !== 0) return;
     setIsDragging(true);
     setDragStart({
       x: e.clientX - containerOffset.x,
@@ -278,7 +368,6 @@ const Graph = ({ data }) => {
 
   return (
     <div className="flex flex-col h-screen overflow-hidden" style={{ backgroundColor: '#171717' }}>
-      {/* Fixed Header */}
       <div className="flex justify-between items-center px-8 py-4 border-b border-gray-800">
         <h2 
           style={{ fontFamily: 'Crimson Text, Georgia, serif' }}
@@ -288,7 +377,6 @@ const Graph = ({ data }) => {
         </h2>
       </div>
 
-      {/* Main Content Area */}
       <div className="flex flex-1 relative">
         <div 
           className="flex-1 relative overflow-hidden" 
@@ -297,6 +385,10 @@ const Graph = ({ data }) => {
           style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
         >
           <div className="absolute inset-0 overflow-hidden">
+            <IdenticalConnections 
+              connections={Array.from(identicalConnections.values())} 
+              isActive={true} 
+            />
             <div
               className="w-full h-full transition-transform duration-300 ease-in-out"
               style={{ 
@@ -313,13 +405,13 @@ const Graph = ({ data }) => {
                     activePath={activePath}
                     depth={0}
                     onNodeRef={handleNodeRef}
+                    onIdenticalConnection={handleIdenticalConnection}
                   />
                 </div>
-              </div>
+                </div>
             </div>
           </div>
 
-          {/* Fixed UX Controls */}
           <div 
             style={{
               fontFamily: 'Crimson Text, Georgia, serif',
@@ -338,12 +430,25 @@ const Graph = ({ data }) => {
 
         {selectedNode && (
           <div 
-            className="w-1/3 border-l overflow-auto"
+            className="w-1/3 border-l flex flex-col h-full"
             style={{ borderColor: '#404040', backgroundColor: '#171717' }}
           >
-            <div className="p-4 flex flex-col gap-4">
-              <AncestryPanel node={selectedNode} graphData={data} />
-              <ContentPanel node={selectedNode} />
+            {/* Ancestry Panel */}
+            <div className="h-1/2 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800">
+              <div className="p-4">
+                <AncestryPanel node={selectedNode} graphData={data} />
+              </div>
+            </div>
+            
+            {/* Content Panel */}
+            <div 
+              className="h-1/2 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800 border-t"
+              style={{ borderColor: '#404040' }}
+            >
+              <div className="p-4">
+                <ContentPanel node={selectedNode} />
+                <NodeMetadata node={selectedNode} />
+              </div>
             </div>
           </div>
         )}
