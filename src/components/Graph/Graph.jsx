@@ -12,9 +12,24 @@ const getNodePrefix = (nodeType) => {
   }
 };
 
-// SVG layer for identical node connections with curved paths
+// IdenticalConnections component
 const IdenticalConnections = ({ connections, isActive }) => (
   <svg className="absolute inset-0 pointer-events-none" style={{ overflow: 'visible' }}>
+    <defs>
+      <marker
+        id="arrowhead"
+        markerWidth="4"
+        markerHeight="4"
+        refX="0"
+        refY="2"
+        orient="auto"
+      >
+        <polygon
+          points="0 0, 4 2, 0 4"
+          className="fill-pink-400 transition-colors duration-300"
+        />
+      </marker>
+    </defs>
     {connections.map(({ from, to }, idx) => {
       // Calculate control point for the curve
       const midX = (from.x + to.x) / 2;
@@ -22,20 +37,28 @@ const IdenticalConnections = ({ connections, isActive }) => (
       const dx = to.x - from.x;
       const dy = to.y - from.y;
       const distance = Math.sqrt(dx * dx + dy * dy);
-      const offset = distance * 0.2; // Curve height relative to distance
+      const offset = distance * 0.2;
 
       // Create control point perpendicular to the line
       const controlX = midX - dy * offset / distance;
       const controlY = midY + dx * offset / distance;
 
+      // Calculate stop point slightly before the target
+      const stopDistance = 12;
+      const angle = Math.atan2(to.y - from.y, to.x - from.x);
+      const stopX = to.x - (stopDistance * Math.cos(angle));
+      const stopY = to.y - (stopDistance * Math.sin(angle));
+
       return (
         <path
           key={idx}
-          d={`M ${from.x} ${from.y} Q ${controlX} ${controlY} ${to.x} ${to.y}`}
+          d={`M ${from.x} ${from.y} Q ${controlX} ${controlY} ${stopX} ${stopY}`}
           fill="none"
-          className={`${isActive ? 'stroke-pink-400' : 'stroke-gray-600'} transition-colors duration-300`}
-          strokeWidth="2"
-          strokeDasharray="4"
+          stroke="#ec4899"
+          strokeWidth="1"
+          strokeDasharray="3"
+          markerEnd="url(#arrowhead)"
+          className="transition-colors duration-300"
         />
       );
     })}
@@ -44,7 +67,7 @@ const IdenticalConnections = ({ connections, isActive }) => (
 
 // X symbol for terminal nodes
 const XSymbol = ({ isActive }) => (
-  <svg className="w-4 h-4" viewBox="0 0 16 16">
+  <svg className="w-4 h-4 node-circle" viewBox="0 0 16 16">
     <line 
       x1="4" y1="4" 
       x2="12" y2="12" 
@@ -86,6 +109,7 @@ const NodeMetadata = ({ node }) => (
   </div>
 );
 
+// Node component
 const Node = ({ 
   id,
   data, 
@@ -105,14 +129,25 @@ const Node = ({
 
   useEffect(() => {
     if (activePath.includes(id) && data[id]?.identical_to) {
-      const nodeElement = nodeRef.current;
-      if (nodeElement) {
-        const rect = nodeElement.getBoundingClientRect();
+      const sourceElement = nodeRef.current?.querySelector('.node-circle');
+      const targetId = data[id].identical_to;
+      const targetElement = document.querySelector(`[data-node-id="${targetId}"] .node-circle`);
+      
+      if (sourceElement && targetElement) {
+        const fromRect = sourceElement.getBoundingClientRect();
+        const toRect = targetElement.getBoundingClientRect();
+        
         const fromPosition = {
-          x: rect.left + rect.width/2,
-          y: rect.top + rect.height/2
+          x: fromRect.left + fromRect.width/2,
+          y: fromRect.top + fromRect.height/2
         };
-        onIdenticalConnection(id, fromPosition);
+        
+        const toPosition = {
+          x: toRect.left + toRect.width/2,
+          y: toRect.top + toRect.height/2
+        };
+        
+        onIdenticalConnection(id, fromPosition, toPosition);
       }
     }
   }, [id, activePath, data, onIdenticalConnection]);
@@ -132,7 +167,7 @@ const Node = ({
   if (!shouldShow) return null;
 
   return (
-    <div className="flex flex-col items-center" ref={nodeRef}>
+    <div className="flex flex-col items-center" ref={nodeRef} data-node-id={id}>
       <div className="flex flex-col items-center relative">
         {depth > 0 && (
           <div className={`
@@ -151,7 +186,7 @@ const Node = ({
               <XSymbol isActive={isInPath} />
             ) : (
               <div className={`
-                w-4 h-4 rounded-full border-2
+                w-4 h-4 rounded-full border-2 node-circle
                 ${isInPath 
                   ? 'border-pink-400 bg-pink-100' 
                   : 'border-gray-600 bg-transparent border-dotted'}
@@ -215,22 +250,14 @@ const Graph = ({ data }) => {
   const handleNodeRef = (id, element) => {
     setNodeRefs(prev => new Map(prev.set(id, element)));
   };
-
-  const handleIdenticalConnection = (fromId, fromPosition) => {
+  
+  const handleIdenticalConnection = (fromId, fromPosition, toPosition) => {
     const toId = data[fromId]?.identical_to;
     if (toId) {
-      const toNode = nodeRefs.get(toId);
-      if (toNode) {
-        const toRect = toNode.getBoundingClientRect();
-        const toPosition = {
-          x: toRect.left + toRect.width/2,
-          y: toRect.top + toRect.height/2
-        };
-        setIdenticalConnections(prev => new Map(prev.set(fromId, {
-          from: fromPosition,
-          to: toPosition
-        })));
-      }
+      setIdenticalConnections(prev => new Map(prev.set(fromId, {
+        from: fromPosition,
+        to: toPosition
+      })));
     }
   };
 
@@ -378,26 +405,23 @@ const Graph = ({ data }) => {
 
   return (
     <div className="h-screen w-full flex bg-[#171717]">
-      {/* Graph container */}
-      <div className="relative flex-1">
-        {/* Fixed graph area */}
+      <div className="relative flex-1 overflow-hidden">
         <div className="absolute inset-0"
           ref={containerRef}
           onMouseDown={handleMouseDown}
           onWheel={handleWheel}
           style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
         >
-          {/* Graph content with zoom/pan */}
-          <div className="w-full h-full">
+          <div className="w-full h-full overflow-hidden">
             <IdenticalConnections 
               connections={Array.from(identicalConnections.values())} 
               isActive={true} 
             />
             <div
-              className="w-full h-full transition-transform duration-300 ease-in-out"
+              className="w-full h-full transition-transform duration-300 ease-in-out graph-container"
               style={{ 
                 transform: `translate(${containerOffset.x}px, ${containerOffset.y}px) scale(${scale})`,
-                transformOrigin: '0 0'
+                transformOrigin: '50% 50%'
               }}
             >
               <div className="h-full p-8">
