@@ -1,128 +1,136 @@
 // src/components/Graph/Node.jsx
-import React, { useRef } from 'react';
-import { Html } from '@react-three/drei';
-import { useFrame } from '@react-three/fiber';
+import { useEffect, useRef } from 'react';
+import XSymbol from './XSymbol';
 
-const NODE_TYPES = {
-  question: {
-    color: '#2D3748',
-    size: 0.4,
-    selectedColor: '#4A5568',
-    prefix: '(Q)'
-  },
-  thesis: {
-    color: '#718096',
-    size: 0.25,
-    selectedColor: '#A0AEC0',
-    prefix: '(T)'
-  },
-  synthesis: {
-    color: '#A0AEC0',
-    size: 0.25,
-    selectedColor: '#CBD5E0',
-    prefix: '(S)'
-  },
-  antithesis: {
-    color: '#E2E8F0',
-    size: 0.25,
-    selectedColor: '#EDF2F7',
-    prefix: '(A)'
+const getNodePrefix = (nodeType) => {
+  switch (nodeType?.toLowerCase()) {
+    case 'question': return '(Q) ';
+    case 'thesis': return '(T) ';
+    case 'antithesis': return '(A) ';
+    case 'synthesis': return '(S) ';
+    default: return '';
   }
 };
 
 const Node = ({ 
-  position, 
-  summary, 
-  content, 
-  node_type, 
-  selected, 
-  onClick,
-  relationToSelected 
+  id,
+  data, 
+  onNodeClick, 
+  activePath = [],
+  depth = 0,
+  onNodeRef,
+  onIdenticalConnection
 }) => {
-  const nodeStyle = NODE_TYPES[node_type] || NODE_TYPES.thesis;
-  const color = selected ? nodeStyle.selectedColor : nodeStyle.color;
-  const htmlRef = useRef();
-  const meshRef = useRef();
-
-  // Calculate visibility based on relationship
-  const isFamily = relationToSelected === 'parent' || 
-                  relationToSelected === 'child' || 
-                  relationToSelected === 'selected' ||
-                  relationToSelected === 'sibling';
-
-  useFrame(({ camera }) => {
-    if (htmlRef.current && meshRef.current) {
-      const distance = camera.position.distanceTo(meshRef.current.position);
-      
-      // Make unrelated nodes very faint
-      let opacity = isFamily ? 1 : 0.1;
-      
-      // Apply distance-based fading only to family nodes
-      if (isFamily) {
-        opacity *= 1 - Math.min(Math.max((distance - 8) / 15, 0), 0.5);
-      }
-
-      // Hide labels completely for non-family nodes
-      htmlRef.current.style.opacity = isFamily ? opacity : 0;
-      
-      // Scale nodes based on relationship
-      const scale = selected ? 1.2 : 
-                   isFamily ? 1 : 0.5;
-      meshRef.current.scale.setScalar(scale);
+  const nodeRef = useRef(null);
+  
+  useEffect(() => {
+    if (nodeRef.current) {
+      onNodeRef(id, nodeRef.current);
     }
-  });
+  }, [id, onNodeRef]);
+
+  useEffect(() => {
+    if (activePath.includes(id) && data[id]?.identical_to) {
+      const sourceElement = nodeRef.current?.querySelector('.node-circle');
+      const targetId = data[id].identical_to;
+      const targetElement = document.querySelector(`[data-node-id="${targetId}"] .node-circle`);
+      
+      if (sourceElement && targetElement) {
+        const fromRect = sourceElement.getBoundingClientRect();
+        const toRect = targetElement.getBoundingClientRect();
+        
+        const fromPosition = {
+          x: fromRect.left + fromRect.width/2,
+          y: fromRect.top + fromRect.height/2
+        };
+        
+        const toPosition = {
+          x: toRect.left + toRect.width/2,
+          y: toRect.top + toRect.height/2
+        };
+        
+        onIdenticalConnection(id, fromPosition, toPosition);
+      }
+    }
+  }, [id, activePath, data, onIdenticalConnection]);
+
+  const childNodes = Object.entries(data).filter(([_, nodeData]) => 
+    nodeData.parent_id === id
+  );
+
+  const isInPath = activePath.includes(id);
+  const parentId = data[id]?.parent_id;
+  const shouldShow = depth === 0 || isInPath || (parentId && activePath.includes(parentId));
+  const showLabel = isInPath;
+  const isNonsense = data[id]?.nonsense;
+  const identicalTo = data[id]?.identical_to;
+  const isTerminal = isNonsense || identicalTo;
+
+  if (!shouldShow) return null;
 
   return (
-    <mesh
-      position={position}
-      onClick={onClick}
-      ref={meshRef}
-    >
-      <sphereGeometry args={[nodeStyle.size, 32, 32]} />
-      <meshStandardMaterial 
-        color={color}
-        transparent
-        opacity={isFamily ? 0.9 : 0.1}
-        roughness={0.7}
-        metalness={0.3}
-      />
-      <Html position={[0, nodeStyle.size + 0.3, 0]}>
-        <div 
-          ref={htmlRef}
-          onClick={onClick}
-          style={{
-            background: '#262626',
-            padding: '0.75rem 1rem',  // Increased padding
-            borderRadius: '0.375rem',
-            boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
-            fontFamily: 'Crimson Text, Georgia, serif',
-            color: '#f5f5f5',
-            fontSize: '1rem',  // Increased font size
-            whiteSpace: 'normal',  // Allow text to wrap
-            maxWidth: '300px',     // Increased max width
-            width: 'max-content',  // Adjust width to content
-            minWidth: '200px',     // Minimum width
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            cursor: 'pointer',
-            transition: 'opacity 0.3s ease',
-            transform: `translate(-50%, -50%) scale(${selected ? 1.2 : 1})`,
-            userSelect: 'none',
-            display: isFamily ? 'block' : 'none',
-            lineHeight: '1.4'      // Better line height for readability
-          }}
-          onMouseEnter={(e) => {
-            if (isFamily) e.currentTarget.style.backgroundColor = '#363636';
-          }}
-          onMouseLeave={(e) => {
-            if (isFamily) e.currentTarget.style.backgroundColor = '#262626';
-          }}
-        >
-          <span style={{ fontWeight: 'bold', marginRight: '4px' }}>{nodeStyle.prefix}</span>
-          {summary}
+    <div className="flex flex-col items-center" ref={nodeRef} data-node-id={id}>
+      <div className="flex flex-col items-center relative">
+        {depth > 0 && (
+          <div className={`
+            h-8 w-[2px] absolute -top-8
+            ${isInPath ? 'bg-pink-400' : 'bg-gray-600'}
+            transition-colors duration-300
+          `}></div>
+        )}
+        
+        <div className="flex flex-col items-center">
+          <div 
+            className="cursor-pointer transition-all duration-300"
+            onClick={() => onNodeClick(id)}
+          >
+            {isTerminal ? (
+              <XSymbol isActive={isInPath} />
+            ) : (
+              <div className={`
+                w-4 h-4 rounded-full border-2 node-circle
+                ${isInPath 
+                  ? 'border-pink-400 bg-pink-100' 
+                  : 'border-gray-600 bg-transparent border-dotted'}
+                hover:border-pink-300
+              `} />
+            )}
+          </div>
+          {showLabel && (
+            <div 
+              style={{
+                fontFamily: 'Crimson Text, Georgia, serif',
+                fontSize: '1.125rem',
+                lineHeight: '1.6',
+                color: isNonsense ? '#ef4444' : '#e5e5e5'
+              }}
+              className="mt-2 text-center max-w-md px-4 transition-opacity duration-300"
+            >
+              {getNodePrefix(data[id]?.node_type)}{data[id]?.summary || ''}
+            </div>
+          )}
         </div>
-      </Html>
-    </mesh>
+      </div>
+
+      {childNodes.length > 0 && (
+        <div className="mt-8 flex flex-col items-center">
+          <div className="flex gap-12">
+            {childNodes.map(([childId]) => (
+              <Node
+                key={childId}
+                id={childId}
+                data={data}
+                onNodeClick={onNodeClick}
+                activePath={activePath}
+                depth={depth + 1}
+                onNodeRef={onNodeRef}
+                onIdenticalConnection={onIdenticalConnection}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
   );
 };
 
