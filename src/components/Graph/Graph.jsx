@@ -12,21 +12,33 @@ const getNodePrefix = (nodeType) => {
   }
 };
 
-// SVG layer for identical node connections
+// SVG layer for identical node connections with curved paths
 const IdenticalConnections = ({ connections, isActive }) => (
   <svg className="absolute inset-0 pointer-events-none" style={{ overflow: 'visible' }}>
-    {connections.map(({ from, to }, idx) => (
-      <line
-        key={idx}
-        x1={from.x}
-        y1={from.y}
-        x2={to.x}
-        y2={to.y}
-        className={`${isActive ? 'stroke-pink-400' : 'stroke-gray-600'} transition-colors duration-300`}
-        strokeWidth="2"
-        strokeDasharray="4"
-      />
-    ))}
+    {connections.map(({ from, to }, idx) => {
+      // Calculate control point for the curve
+      const midX = (from.x + to.x) / 2;
+      const midY = (from.y + to.y) / 2;
+      const dx = to.x - from.x;
+      const dy = to.y - from.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      const offset = distance * 0.2; // Curve height relative to distance
+
+      // Create control point perpendicular to the line
+      const controlX = midX - dy * offset / distance;
+      const controlY = midY + dx * offset / distance;
+
+      return (
+        <path
+          key={idx}
+          d={`M ${from.x} ${from.y} Q ${controlX} ${controlY} ${to.x} ${to.y}`}
+          fill="none"
+          className={`${isActive ? 'stroke-pink-400' : 'stroke-gray-600'} transition-colors duration-300`}
+          strokeWidth="2"
+          strokeDasharray="4"
+        />
+      );
+    })}
   </svg>
 );
 
@@ -50,13 +62,27 @@ const XSymbol = ({ isActive }) => (
   </svg>
 );
 
-// Metadata display component
+// Metadata display component with consistent styling
 const NodeMetadata = ({ node }) => (
-  <div className="mt-4 p-3 rounded-lg bg-gray-800/50">
-    <div className="text-gray-400">Type: <span className="text-gray-200">{node.node_type}</span></div>
-    <div className="text-gray-400">Terminal: <span className="text-gray-200">{(node.nonsense || node.identical_to) ? 'Yes' : 'No'}</span></div>
-    <div className="text-gray-400">Nonsense: <span className="text-gray-200">{node.nonsense ? 'Yes' : 'No'}</span></div>
-    <div className="text-gray-400">Identical To: <span className="text-gray-200">{node.identical_to || 'None'}</span></div>
+  <div className="p-4 bg-gray-900 border-t border-gray-800">
+    <div className="space-y-2" style={{ fontFamily: 'Crimson Text, Georgia, serif' }}>
+      <div className="flex justify-between">
+        <span className="text-gray-400">Type:</span>
+        <span className="text-gray-200">{node.node_type}</span>
+      </div>
+      <div className="flex justify-between">
+        <span className="text-gray-400">Terminal:</span>
+        <span className="text-gray-200">{(node.nonsense || node.identical_to) ? 'Yes' : 'No'}</span>
+      </div>
+      <div className="flex justify-between">
+        <span className="text-gray-400">Nonsense:</span>
+        <span className="text-gray-200">{node.nonsense ? 'Yes' : 'No'}</span>
+      </div>
+      <div className="flex justify-between">
+        <span className="text-gray-400">Identical To:</span>
+        <span className="text-gray-200">{node.identical_to || 'None'}</span>
+      </div>
+    </div>
   </div>
 );
 
@@ -171,15 +197,20 @@ const Node = ({
   );
 };
 
+
 const Graph = ({ data }) => {
   const [activePath, setActivePath] = useState([]);
   const [selectedNode, setSelectedNode] = useState(null);
   const [nodeRefs, setNodeRefs] = useState(new Map());
   const containerRef = useRef(null);
   const [containerOffset, setContainerOffset] = useState({ x: 0, y: 0 });
+  const [scale, setScale] = useState(1);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [identicalConnections, setIdenticalConnections] = useState(new Map());
+
+  const MIN_SCALE = 0.1;
+  const MAX_SCALE = 3;
 
   const handleNodeRef = (id, element) => {
     setNodeRefs(prev => new Map(prev.set(id, element)));
@@ -204,47 +235,27 @@ const Graph = ({ data }) => {
   };
 
   useEffect(() => {
-    // Clear identical connections when active path changes
     setIdenticalConnections(new Map());
   }, [activePath]);
 
-  const centerOnNode = (nodeId) => {
-    const nodeElement = nodeRefs.get(nodeId);
-    const container = containerRef.current;
+  const handleWheel = (e) => {
+    e.preventDefault();
+    const delta = e.deltaY * -0.001;
+    const newScale = Math.min(Math.max(scale + delta, MIN_SCALE), MAX_SCALE);
     
-    if (nodeElement && container) {
-      const currentScroll = {
-        top: container.scrollTop,
-        left: container.scrollLeft
-      };
-
-      const contentContainer = container.querySelector('.transition-transform');
-      if (!contentContainer) return;
-      
-      contentContainer.style.transition = 'none';
-      contentContainer.style.transform = 'translate(0, 0)';
-      
-      contentContainer.getBoundingClientRect();
-
-      const nodeDot = nodeElement.querySelector('.rounded-full, svg');
-      if (!nodeDot) {
-        contentContainer.style.transform = `translate(${containerOffset.x}px, ${containerOffset.y}px)`;
-        contentContainer.style.transition = '';
-        return;
-      }
-
-      const containerRect = container.getBoundingClientRect();
-      const nodeDotRect = nodeDot.getBoundingClientRect();
-
-      const targetX = containerRect.width / 2 - (nodeDotRect.left - containerRect.left + nodeDotRect.width / 2);
-      const targetY = containerRect.height / 2 - (nodeDotRect.top - containerRect.top + nodeDotRect.height / 2);
-
-      contentContainer.style.transition = '';
-      setContainerOffset({ x: targetX, y: targetY });
-
-      container.scrollTop = currentScroll.top;
-      container.scrollLeft = currentScroll.left;
-    }
+    // Get pointer position relative to container
+    const container = containerRef.current;
+    const rect = container.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    
+    // Calculate new position to zoom toward cursor
+    const scaleChange = newScale - scale;
+    const newX = containerOffset.x - ((x - containerOffset.x) * scaleChange / scale);
+    const newY = containerOffset.y - ((y - containerOffset.y) * scaleChange / scale);
+    
+    setScale(newScale);
+    setContainerOffset({ x: newX, y: newY });
   };
 
   const handleMouseDown = (e) => {
@@ -289,7 +300,6 @@ const Graph = ({ data }) => {
     const newPath = findPath(nodeId);
     setActivePath(newPath);
     setSelectedNode(data[nodeId]);
-    centerOnNode(nodeId);
   };
 
   useEffect(() => {
@@ -367,24 +377,18 @@ const Graph = ({ data }) => {
   if (!rootNode) return null;
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden" style={{ backgroundColor: '#171717' }}>
-      <div className="flex justify-between items-center px-8 py-4 border-b border-gray-800">
-        <h2 
-          style={{ fontFamily: 'Crimson Text, Georgia, serif' }}
-          className="text-2xl font-semibold text-gray-100"
-        >
-          Knowledge Graph
-        </h2>
-      </div>
-
-      <div className="flex flex-1 relative">
-        <div 
-          className="flex-1 relative overflow-hidden" 
+    <div className="h-screen w-full flex bg-[#171717]">
+      {/* Graph container */}
+      <div className="relative flex-1">
+        {/* Fixed graph area */}
+        <div className="absolute inset-0"
           ref={containerRef}
           onMouseDown={handleMouseDown}
+          onWheel={handleWheel}
           style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
         >
-          <div className="absolute inset-0 overflow-hidden">
+          {/* Graph content with zoom/pan */}
+          <div className="w-full h-full">
             <IdenticalConnections 
               connections={Array.from(identicalConnections.values())} 
               isActive={true} 
@@ -392,8 +396,8 @@ const Graph = ({ data }) => {
             <div
               className="w-full h-full transition-transform duration-300 ease-in-out"
               style={{ 
-                transform: `translate(${containerOffset.x}px, ${containerOffset.y}px)`,
-                pointerEvents: isDragging ? 'none' : 'auto'
+                transform: `translate(${containerOffset.x}px, ${containerOffset.y}px) scale(${scale})`,
+                transformOrigin: '0 0'
               }}
             >
               <div className="h-full p-8">
@@ -408,9 +412,41 @@ const Graph = ({ data }) => {
                     onIdenticalConnection={handleIdenticalConnection}
                   />
                 </div>
-                </div>
+              </div>
             </div>
           </div>
+
+          {/* Fixed overlays */}
+          {selectedNode && (
+          <div 
+            style={{
+              fontFamily: 'Crimson Text, Georgia, serif',
+              backgroundColor: '#262626'
+            }}
+            className="fixed top-20 left-5 text-gray-400 p-4 rounded-lg text-sm z-10"
+          >
+            <div className="flex flex-col gap-2">
+              <div className="flex justify-between gap-4">
+                <span>Type:</span>
+                <span className="text-gray-200">{selectedNode.node_type}</span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span>Terminal:</span>
+                <span className="text-gray-200">{(selectedNode.nonsense || selectedNode.identical_to) ? 'Yes' : 'No'}</span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span>Nonsense:</span>
+                <span className="text-gray-200">{selectedNode.nonsense ? 'Yes' : 'No'}</span>
+              </div>
+              <div className="flex justify-between gap-4">
+                <span>Identical To:</span>
+                <span className="text-gray-200">
+                  {selectedNode.identical_to ? data[selectedNode.identical_to]?.summary || 'Unknown' : 'None'}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
 
           <div 
             style={{
@@ -419,40 +455,38 @@ const Graph = ({ data }) => {
             }}
             className="fixed bottom-5 left-5 text-gray-400 p-4 rounded-lg text-sm z-10"
           >
-            <div>Click node to focus</div>
+            <div>Click node to select</div>
             <div>Arrow keys to navigate:</div>
             <div>↑ Parent | ↓ Child</div>
             <div>← → Between siblings</div>
-            <div>Press 'C' to center on root</div>
             <div>Click and drag to pan</div>
+            <div>Scroll to zoom</div>
           </div>
         </div>
+      </div>
 
-        {selectedNode && (
-          <div 
-            className="w-1/3 border-l flex flex-col h-full"
-            style={{ borderColor: '#404040', backgroundColor: '#171717' }}
-          >
-            {/* Ancestry Panel */}
-            <div className="h-1/2 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800">
+      {/* Side panels */}
+      {selectedNode && (
+        <div className="w-1/3 flex flex-col h-screen border-l border-gray-800 bg-[#171717]">
+          {/* Content panel */}
+          <div className="h-1/2 flex flex-col min-h-0">
+            <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800">
+              <div className="p-4">
+                <ContentPanel node={selectedNode} />
+              </div>
+            </div>
+          </div>
+          
+          {/* Ancestry panel */}
+          <div className="h-1/2 flex flex-col min-h-0 border-t border-gray-800">
+            <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800">
               <div className="p-4">
                 <AncestryPanel node={selectedNode} graphData={data} />
               </div>
             </div>
-            
-            {/* Content Panel */}
-            <div 
-              className="h-1/2 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800 border-t"
-              style={{ borderColor: '#404040' }}
-            >
-              <div className="p-4">
-                <ContentPanel node={selectedNode} />
-                <NodeMetadata node={selectedNode} />
-              </div>
-            </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 };
