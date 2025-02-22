@@ -19,3 +19,4 @@ const XSymbol = ({ isActive }) => (
   );
   
   export default XSymbol;
+  

@@ -1,54 +1,74 @@
-// src/components/Graph/IdenticalConnections.jsx
-const IdenticalConnections = ({ connections, isActive }) => (
-    <svg className="absolute inset-0 pointer-events-none" style={{ overflow: 'visible' }}>
-      <defs>
-        <marker
-          id="arrowhead"
-          markerWidth="4"
-          markerHeight="4"
-          refX="0"
-          refY="2"
-          orient="auto"
-        >
-          <polygon
-            points="0 0, 4 2, 0 4"
-            className="fill-pink-400 transition-colors duration-300"
-          />
-        </marker>
-      </defs>
-      {connections.map(({ from, to }, idx) => {
-        // Calculate control point for the curve
-        const midX = (from.x + to.x) / 2;
-        const midY = (from.y + to.y) / 2;
-        const dx = to.x - from.x;
-        const dy = to.y - from.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        const offset = distance * 0.2;
-  
-        // Create control point perpendicular to the line
-        const controlX = midX - dy * offset / distance;
-        const controlY = midY + dx * offset / distance;
-  
-        // Calculate stop point slightly before the target
-        const stopDistance = 12;
-        const angle = Math.atan2(to.y - from.y, to.x - from.x);
-        const stopX = to.x - (stopDistance * Math.cos(angle));
-        const stopY = to.y - (stopDistance * Math.sin(angle));
-  
-        return (
+const IdenticalConnections = ({ connections = [] }) => (
+  <svg 
+    className="absolute inset-0 pointer-events-none" 
+    style={{ 
+      overflow: 'visible',
+      width: '100%',
+      height: '100%'
+    }}
+  >
+    <defs>
+      <marker
+        id="arrowhead"
+        markerWidth="6"
+        markerHeight="6"
+        refX="3"
+        refY="3"
+        orient="auto"
+      >
+        <polygon
+          points="0 0, 6 3, 0 6"
+          fill="#ec4899"
+          className="transition-colors duration-300"
+        />
+      </marker>
+    </defs>
+    {connections.filter(conn => 
+      conn?.from?.x != null && 
+      conn?.from?.y != null && 
+      conn?.to?.x != null && 
+      conn?.to?.y != null
+    ).map(({ from, to, sourceId, targetId }, idx) => {
+      // Calculate curve control points
+      const dx = to.x - from.x;
+      const dy = to.y - from.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      
+      // Make curve more pronounced for longer distances
+      const curveIntensity = Math.min(distance * 0.5, 200);
+      
+      // Calculate control points for a more pronounced curve
+      const midX = (from.x + to.x) / 2;
+      const midY = (from.y + to.y) / 2;
+      
+      // Create control points perpendicular to the line
+      const controlX = midX - dy * curveIntensity / distance;
+      const controlY = midY + dx * curveIntensity / distance;
+
+      return (
+        <g key={`${sourceId}-${targetId}-${idx}`}>
+          {/* Draw path shadow for better visibility */}
           <path
-            key={idx}
-            d={`M ${from.x} ${from.y} Q ${controlX} ${controlY} ${stopX} ${stopY}`}
+            d={`M ${from.x} ${from.y} Q ${controlX} ${controlY} ${to.x} ${to.y}`}
+            fill="none"
+            stroke="#262626"
+            strokeWidth="3"
+            className="transition-colors duration-300"
+          />
+          {/* Main path */}
+          <path
+            d={`M ${from.x} ${from.y} Q ${controlX} ${controlY} ${to.x} ${to.y}`}
             fill="none"
             stroke="#ec4899"
-            strokeWidth="1"
-            strokeDasharray="3"
+            strokeWidth="1.5"
+            strokeDasharray="4"
             markerEnd="url(#arrowhead)"
             className="transition-colors duration-300"
           />
-        );
-      })}
-    </svg>
-  );
-  
-  export default IdenticalConnections;
+        </g>
+      );
+    })}
+  </svg>
+);
+
+export default IdenticalConnections;

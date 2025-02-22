@@ -1,4 +1,3 @@
-// src/components/Graph/Node.jsx
 import { useEffect, useRef } from 'react';
 import XSymbol from './XSymbol';
 
@@ -30,26 +29,38 @@ const Node = ({
   }, [id, onNodeRef]);
 
   useEffect(() => {
+    // Check for identity connections when node is active
     if (activePath.includes(id) && data[id]?.identical_to) {
       const sourceElement = nodeRef.current?.querySelector('.node-circle');
       const targetId = data[id].identical_to;
       const targetElement = document.querySelector(`[data-node-id="${targetId}"] .node-circle`);
       
       if (sourceElement && targetElement) {
-        const fromRect = sourceElement.getBoundingClientRect();
-        const toRect = targetElement.getBoundingClientRect();
-        
-        const fromPosition = {
-          x: fromRect.left + fromRect.width/2,
-          y: fromRect.top + fromRect.height/2
-        };
-        
-        const toPosition = {
-          x: toRect.left + toRect.width/2,
-          y: toRect.top + toRect.height/2
-        };
-        
-        onIdenticalConnection(id, fromPosition, toPosition);
+        try {
+          const fromRect = sourceElement.getBoundingClientRect();
+          const toRect = targetElement.getBoundingClientRect();
+          
+          // Only create connection if both elements have valid positions
+          if (fromRect && toRect && 
+              fromRect.width && fromRect.height && 
+              toRect.width && toRect.height) {
+            
+            onIdenticalConnection({
+              from: {
+                x: fromRect.left + fromRect.width/2,
+                y: fromRect.top + fromRect.height/2
+              },
+              to: {
+                x: toRect.left + toRect.width/2,
+                y: toRect.top + toRect.height/2
+              },
+              sourceId: id,
+              targetId: targetId
+            });
+          }
+        } catch (error) {
+          console.warn('Failed to calculate connection positions:', error);
+        }
       }
     }
   }, [id, activePath, data, onIdenticalConnection]);
@@ -98,13 +109,10 @@ const Node = ({
           </div>
           {showLabel && (
             <div 
+              className="mt-2 text-center max-w-md px-4 transition-opacity duration-300 font-serif text-lg leading-relaxed"
               style={{
-                fontFamily: 'Crimson Text, Georgia, serif',
-                fontSize: '1.125rem',
-                lineHeight: '1.6',
                 color: isNonsense ? '#ef4444' : '#e5e5e5'
               }}
-              className="mt-2 text-center max-w-md px-4 transition-opacity duration-300"
             >
               {getNodePrefix(data[id]?.node_type)}{data[id]?.summary || ''}
             </div>

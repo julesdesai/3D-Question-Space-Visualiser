@@ -11,6 +11,12 @@
         "name": "What is Knowledge? Broad-Shallow 1hr",
         "description": "Max repsonses = 100",
         "filename": "graph_broad_60mins_v1.json"
+      },
+      {
+        "id": "graph_default",
+        "name": "graph_default",
+        "description": "Max repsonses = 100",
+        "filename": "graph.json"
       }
     ]
   }

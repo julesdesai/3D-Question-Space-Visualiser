@@ -1,6 +1,4 @@
-// src/components/Graph/Graph.jsx
-
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Node from './Node';
 import IdenticalConnections from './IdenticalConnections';
 import ContentPanel from '../UI/ContentPanel';
@@ -20,20 +18,66 @@ const Graph = ({ data }) => {
   const MIN_SCALE = 0.1;
   const MAX_SCALE = 3;
 
-  const handleNodeRef = (id, element) => {
+  const handleNodeRef = useCallback((id, element) => {
     setNodeRefs(prev => new Map(prev.set(id, element)));
-  };
+  }, []);
 
-  const handleIdenticalConnection = (fromId, fromPosition, toPosition) => {
-    setIdenticalConnections(prev => new Map(prev.set(fromId, {
-      from: fromPosition,
-      to: toPosition
-    })));
-  };
+  const updateIdenticalConnections = useCallback(() => {
+    const newConnections = new Map();
+    
+    // Find all nodes that are identical to others
+    Object.entries(data).forEach(([id, node]) => {
+      if (node.identical_to) {
+        const sourceElement = document.querySelector(`[data-node-id="${id}"] .node-circle`);
+        const targetElement = document.querySelector(`[data-node-id="${node.identical_to}"] .node-circle`);
+        
+        if (sourceElement && targetElement) {
+          const fromRect = sourceElement.getBoundingClientRect();
+          const toRect = targetElement.getBoundingClientRect();
+          
+          // Only create connection if both elements have valid positions
+          if (fromRect && toRect && 
+              fromRect.width && fromRect.height && 
+              toRect.width && toRect.height) {
+            
+            newConnections.set(id, {
+              from: {
+                x: fromRect.left + fromRect.width/2,
+                y: fromRect.top + fromRect.height/2
+              },
+              to: {
+                x: toRect.left + toRect.width/2,
+                y: toRect.top + toRect.height/2
+              },
+              sourceId: id,
+              targetId: node.identical_to
+            });
+          }
+        }
+      }
+    });
+    
+    setIdenticalConnections(newConnections);
+  }, [data]);
 
+  // Update connections whenever the active path changes
   useEffect(() => {
-    setIdenticalConnections(new Map());
-  }, [activePath]);
+    updateIdenticalConnections();
+  }, [activePath, updateIdenticalConnections]);
+
+  // Update connections periodically to handle layout changes
+  useEffect(() => {
+    const interval = setInterval(updateIdenticalConnections, 1000);
+    return () => clearInterval(interval);
+  }, [updateIdenticalConnections]);
+
+  const handleIdenticalConnection = useCallback((connection) => {
+    setIdenticalConnections(prev => {
+      const newMap = new Map(prev);
+      newMap.set(connection.sourceId, connection);
+      return newMap;
+    });
+  }, []);
 
   const handleWheel = (e) => {
     e.preventDefault();
@@ -64,7 +108,6 @@ const Graph = ({ data }) => {
 
   const handleMouseMove = (e) => {
     if (!isDragging) return;
-    
     setContainerOffset({
       x: e.clientX - dragStart.x,
       y: e.clientY - dragStart.y
@@ -186,7 +229,6 @@ const Graph = ({ data }) => {
           <div className="w-full h-full overflow-hidden">
             <IdenticalConnections 
               connections={Array.from(identicalConnections.values())} 
-              isActive={true} 
             />
             <div
               className="w-full h-full transition-transform duration-300 ease-in-out"
@@ -214,11 +256,7 @@ const Graph = ({ data }) => {
           {/* Fixed overlays */}
           {selectedNode && (
             <div 
-              style={{
-                fontFamily: 'Crimson Text, Georgia, serif',
-                backgroundColor: '#262626'
-              }}
-              className="fixed top-20 left-5 text-gray-400 p-4 rounded-lg text-sm z-10"
+              className="fixed top-20 left-5 font-serif text-gray-400 p-4 rounded-lg text-sm z-10 bg-neutral-800"
             >
               <div className="flex flex-col gap-2">
                 <div className="flex justify-between gap-4">
@@ -244,11 +282,7 @@ const Graph = ({ data }) => {
           )}
 
           <div 
-            style={{
-              fontFamily: 'Crimson Text, Georgia, serif',
-              backgroundColor: '#262626'
-            }}
-            className="fixed bottom-5 left-5 text-gray-400 p-4 rounded-lg text-sm z-10"
+            className="fixed bottom-5 left-5 font-serif text-gray-400 p-4 rounded-lg text-sm z-10 bg-neutral-800"
           >
             <div>Click node to select</div>
             <div>Arrow keys to navigate:</div>
