@@ -6,14 +6,15 @@ const ContentPanel = ({ node }) => {
       <p>Select a node to view its content</p>
     </div>
   );
-
-  // Function to extract points from content
+  
+  // Extract numbered points from content
   const extractPoints = (content) => {
+    if (!content) return [];
     const matches = content.match(/\{([^}]+)\}/g) || [];
     return matches.map(match => match.slice(1, -1).trim());
   };
 
-  const points = node.content ? extractPoints(node.content) : [];
+  const points = extractPoints(node.content);
 
   return (
     <div className="bg-neutral-800 rounded-lg p-6 text-neutral-200 font-serif">

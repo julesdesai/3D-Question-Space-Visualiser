@@ -7,6 +7,7 @@ const getNodePrefix = (nodeType) => {
     case 'thesis': return '(T) ';
     case 'antithesis': return '(A) ';
     case 'synthesis': return '(S) ';
+    case 'reason': return '(R) ';
     default: return '';
   }
 };
@@ -17,30 +18,27 @@ const Node = ({
   onNodeClick, 
   activePath = [],
   depth = 0,
-  onNodeRef,
-  onIdenticalConnection
+  onNodeRef = null,
+  onIdenticalConnection = null
 }) => {
   const nodeRef = useRef(null);
   
   useEffect(() => {
-    if (nodeRef.current) {
+    if (nodeRef.current && onNodeRef) {
       onNodeRef(id, nodeRef.current);
     }
   }, [id, onNodeRef]);
 
   useEffect(() => {
-    // Check for identity connections when node is active
-    if (activePath.includes(id) && data[id]?.identical_to) {
+    if (activePath.includes(id) && data[id]?.identical_to && onIdenticalConnection) {
       const sourceElement = nodeRef.current?.querySelector('.node-circle');
-      const targetId = data[id].identical_to;
-      const targetElement = document.querySelector(`[data-node-id="${targetId}"] .node-circle`);
+      const targetElement = document.querySelector(`[data-node-id="${data[id].identical_to}"] .node-circle`);
       
       if (sourceElement && targetElement) {
         try {
           const fromRect = sourceElement.getBoundingClientRect();
           const toRect = targetElement.getBoundingClientRect();
           
-          // Only create connection if both elements have valid positions
           if (fromRect && toRect && 
               fromRect.width && fromRect.height && 
               toRect.width && toRect.height) {
@@ -55,7 +53,7 @@ const Node = ({
                 y: toRect.top + toRect.height/2
               },
               sourceId: id,
-              targetId: targetId
+              targetId: data[id].identical_to
             });
           }
         } catch (error) {
@@ -65,8 +63,9 @@ const Node = ({
     }
   }, [id, activePath, data, onIdenticalConnection]);
 
+  // Get child nodes
   const childNodes = Object.entries(data).filter(([_, nodeData]) => 
-    nodeData.parent_id === id
+    nodeData.parent_id === id && nodeData.node_type !== 'reason'
   );
 
   const isInPath = activePath.includes(id);

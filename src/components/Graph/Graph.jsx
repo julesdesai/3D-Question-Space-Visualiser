@@ -1,83 +1,81 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import Node from './Node';
-import IdenticalConnections from './IdenticalConnections';
+import ReasonsBand from './ReasonsBand';
+import ManhattanConnections from './ManhattanConnections';
 import ContentPanel from '../UI/ContentPanel';
 import AncestryPanel from '../UI/AncestryPanel';
+import { useCoordinateSystem } from '../../hooks/useCoordinateSystem';
 
 const Graph = ({ data }) => {
   const [activePath, setActivePath] = useState([]);
   const [selectedNode, setSelectedNode] = useState(null);
-  const [nodeRefs, setNodeRefs] = useState(new Map());
   const containerRef = useRef(null);
   const [containerOffset, setContainerOffset] = useState({ x: 0, y: 0 });
   const [scale, setScale] = useState(1);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-  const [identicalConnections, setIdenticalConnections] = useState(new Map());
+
+  // Initialize coordinate system
+  const {
+    updateNodeBounds,
+    updateTransform,
+    getConnections,
+    setConnection,
+    resetConnections
+  } = useCoordinateSystem(data);
 
   const MIN_SCALE = 0.1;
   const MAX_SCALE = 3;
 
-  const handleNodeRef = useCallback((id, element) => {
-    setNodeRefs(prev => new Map(prev.set(id, element)));
-  }, []);
+  // Find the question node and thesis nodes
+  const questionNode = Object.entries(data).find(([_, node]) => node.node_type === 'question');
+  const thesisNodes = Object.entries(data)
+    .filter(([_, node]) => node.node_type === 'thesis' && node.parent_id === questionNode?.[0])
+    .map(([id]) => id);
 
-  const updateIdenticalConnections = useCallback(() => {
-    const newConnections = new Map();
-    
-    // Find all nodes that are identical to others
-    Object.entries(data).forEach(([id, node]) => {
-      if (node.identical_to) {
-        const sourceElement = document.querySelector(`[data-node-id="${id}"] .node-circle`);
-        const targetElement = document.querySelector(`[data-node-id="${node.identical_to}"] .node-circle`);
-        
-        if (sourceElement && targetElement) {
-          const fromRect = sourceElement.getBoundingClientRect();
-          const toRect = targetElement.getBoundingClientRect();
-          
-          // Only create connection if both elements have valid positions
-          if (fromRect && toRect && 
-              fromRect.width && fromRect.height && 
-              toRect.width && toRect.height) {
-            
-            newConnections.set(id, {
-              from: {
-                x: fromRect.left + fromRect.width/2,
-                y: fromRect.top + fromRect.height/2
-              },
-              to: {
-                x: toRect.left + toRect.width/2,
-                y: toRect.top + toRect.height/2
-              },
-              sourceId: id,
-              targetId: node.identical_to
-            });
-          }
-        }
-      }
-    });
-    
-    setIdenticalConnections(newConnections);
+  // Create a stable reference for findPath
+  const findPath = useCallback((targetId, path = []) => {
+    if (!targetId) return path;
+    const node = data[targetId];
+    if (!node) return path;
+    return findPath(node.parent_id, [targetId, ...path]);
   }, [data]);
 
-  // Update connections whenever the active path changes
-  useEffect(() => {
-    updateIdenticalConnections();
-  }, [activePath, updateIdenticalConnections]);
-
-  // Update connections periodically to handle layout changes
-  useEffect(() => {
-    const interval = setInterval(updateIdenticalConnections, 1000);
-    return () => clearInterval(interval);
-  }, [updateIdenticalConnections]);
-
-  const handleIdenticalConnection = useCallback((connection) => {
-    setIdenticalConnections(prev => {
-      const newMap = new Map(prev);
-      newMap.set(connection.sourceId, connection);
-      return newMap;
+  // Stabilize handleNodeClick
+  const handleNodeClick = useCallback((nodeId) => {
+    console.log('Node clicked:', nodeId);
+    const newPath = findPath(nodeId);
+    console.log('New path:', newPath);
+    
+    setActivePath(prev => {
+      console.log('Setting active path from:', prev, 'to:', newPath);
+      return newPath;
     });
-  }, []);
+    
+    setSelectedNode(data[nodeId]);
+  }, [data, findPath]);
+
+  // Handle node ref and bounds
+  const handleNodeRef = useCallback((id, element) => {
+    if (element) {
+      requestAnimationFrame(() => {
+        console.log(`Registering node ${id} with coordinate system`);
+        updateNodeBounds(id, element);
+      });
+    }
+  }, [updateNodeBounds]);
+
+  useEffect(() => {
+    console.log('Current connections:', getConnections());
+  }, [getConnections]);
+
+  // Update transform when scale or offset changes
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      updateTransform(scale, containerOffset);
+    }, 0);
+    return () => clearTimeout(timeoutId);
+  }, [scale, containerOffset, updateTransform]);
 
   const handleWheel = (e) => {
     e.preventDefault();
@@ -106,13 +104,13 @@ const Graph = ({ data }) => {
     });
   };
 
-  const handleMouseMove = (e) => {
+  const handleMouseMove = useCallback((e) => {
     if (!isDragging) return;
     setContainerOffset({
       x: e.clientX - dragStart.x,
       y: e.clientY - dragStart.y
     });
-  };
+  }, [isDragging, dragStart]);
 
   const handleMouseUp = () => {
     setIsDragging(false);
@@ -125,31 +123,17 @@ const Graph = ({ data }) => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isDragging, dragStart]);
+  }, [handleMouseMove]);
 
-  const handleNodeClick = (nodeId) => {
-    const findPath = (targetId, path = []) => {
-      if (!targetId) return path;
-      const node = data[targetId];
-      if (!node) return path;
-      return findPath(node.parent_id, [targetId, ...path]);
-    };
-    
-    const newPath = findPath(nodeId);
-    setActivePath(newPath);
-    setSelectedNode(data[nodeId]);
-  };
-
+  // Handle initial thesis node selection
   useEffect(() => {
-    const rootNode = Object.entries(data).find(([_, nodeData]) => 
-      nodeData.parent_id === null
-    );
-    if (rootNode) {
-      handleNodeClick(rootNode[0]);
+    if (thesisNodes.length > 0 && !selectedNode) {
+      console.log('Selecting initial thesis node:', thesisNodes[0]);
+      handleNodeClick(thesisNodes[0]);
     }
-  }, [data]);
+  }, [thesisNodes, handleNodeClick, selectedNode]);
 
-  const handleKeyNavigation = (e) => {
+  const handleKeyNavigation = useCallback((e) => {
     if (!selectedNode) return;
 
     const currentId = Object.entries(data).find(([_, n]) => n === selectedNode)?.[0];
@@ -167,7 +151,7 @@ const Graph = ({ data }) => {
       }
       case 'ArrowDown': {
         const children = Object.entries(data)
-          .filter(([_, n]) => n.parent_id === currentId)
+          .filter(([_, n]) => n.parent_id === currentId && n.node_type !== 'reason')
           .map(([id]) => id);
         if (children.length > 0) {
           nextId = children[0];
@@ -177,7 +161,7 @@ const Graph = ({ data }) => {
       case 'ArrowLeft':
       case 'ArrowRight': {
         const siblings = Object.entries(data)
-          .filter(([_, n]) => n.parent_id === data[currentId]?.parent_id)
+          .filter(([_, n]) => n.parent_id === data[currentId]?.parent_id && n.node_type !== 'reason')
           .map(([id]) => id);
         const currentIndex = siblings.indexOf(currentId);
         if (currentIndex !== -1) {
@@ -188,48 +172,48 @@ const Graph = ({ data }) => {
         }
         break;
       }
-      case 'c':
-      case 'C': {
-        const rootNode = Object.entries(data).find(([_, n]) => n.parent_id === null);
-        if (rootNode) {
-          nextId = rootNode[0];
-        }
+      default:
         break;
-      }
     }
 
     if (nextId) {
       handleNodeClick(nextId);
     }
-  };
+  }, [selectedNode, data, handleNodeClick]);
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyNavigation);
     return () => window.removeEventListener('keydown', handleKeyNavigation);
-  }, [selectedNode, data]);
+  }, [handleKeyNavigation]);
 
-  const rootNode = Object.entries(data).find(([_, nodeData]) => 
-    nodeData.parent_id === null
-  );
-
-  if (!rootNode) return null;
+  // Get current connections
+  const connections = getConnections();
 
   return (
     <div className="h-screen w-full flex bg-[#171717]">
-      {/* Graph container */}
       <div className="relative flex-1 overflow-hidden">
-        {/* Fixed graph area */}
         <div className="absolute inset-0"
           ref={containerRef}
           onMouseDown={handleMouseDown}
           onWheel={handleWheel}
           style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
         >
-          {/* Graph content with zoom/pan */}
           <div className="w-full h-full overflow-hidden">
-            <IdenticalConnections 
-              connections={Array.from(identicalConnections.values())} 
+            {/* Question in header */}
+            <div className="absolute top-4 left-0 right-0 text-center">
+              <h1 className="text-2xl font-serif text-neutral-200">
+                {questionNode?.[1].summary}
+              </h1>
+            </div>
+
+            {/* Connections */}
+            <ManhattanConnections 
+              connections={connections}
+              scale={scale}
+              offset={containerOffset}
             />
+
+            {/* Main content with zoom/pan */}
             <div
               className="w-full h-full transition-transform duration-300 ease-in-out"
               style={{ 
@@ -237,23 +221,36 @@ const Graph = ({ data }) => {
                 transformOrigin: '50% 50%'
               }}
             >
-              <div className="h-full p-8">
-                <div className="flex justify-center items-center h-full">
-                  <Node
-                    id={rootNode[0]}
+              <div className="h-full p-8 pt-24">
+                <div className="flex flex-col items-center">
+                  {/* Reasons band */}
+                  <ReasonsBand
                     data={data}
-                    onNodeClick={handleNodeClick}
                     activePath={activePath}
-                    depth={0}
+                    onNodeClick={handleNodeClick}
                     onNodeRef={handleNodeRef}
-                    onIdenticalConnection={handleIdenticalConnection}
                   />
+
+                  {/* Thesis nodes and their descendants */}
+                  <div className="flex gap-12">
+                    {thesisNodes.map(id => (
+                      <Node
+                        key={id}
+                        id={id}
+                        data={data}
+                        onNodeClick={handleNodeClick}
+                        activePath={activePath}
+                        depth={0}
+                        onNodeRef={handleNodeRef}
+                      />
+                    ))}
+                  </div>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Fixed overlays */}
+          {/* Info panel overlay */}
           {selectedNode && (
             <div 
               className="fixed top-20 left-5 font-serif text-gray-400 p-4 rounded-lg text-sm z-10 bg-neutral-800"
@@ -265,7 +262,9 @@ const Graph = ({ data }) => {
                 </div>
                 <div className="flex justify-between gap-4">
                   <span>Terminal:</span>
-                  <span className="text-gray-200">{(selectedNode.nonsense || selectedNode.identical_to) ? 'Yes' : 'No'}</span>
+                  <span className="text-gray-200">
+                    {(selectedNode.nonsense || selectedNode.identical_to) ? 'Yes' : 'No'}
+                  </span>
                 </div>
                 <div className="flex justify-between gap-4">
                   <span>Nonsense:</span>
@@ -281,9 +280,8 @@ const Graph = ({ data }) => {
             </div>
           )}
 
-          <div 
-            className="fixed bottom-5 left-5 font-serif text-gray-400 p-4 rounded-lg text-sm z-10 bg-neutral-800"
-          >
+          {/* Navigation help overlay */}
+          <div className="fixed bottom-5 left-5 font-serif text-gray-400 p-4 rounded-lg text-sm z-10 bg-neutral-800">
             <div>Click node to select</div>
             <div>Arrow keys to navigate:</div>
             <div>↑ Parent | ↓ Child</div>
@@ -297,7 +295,6 @@ const Graph = ({ data }) => {
       {/* Side panels */}
       {selectedNode && (
         <div className="w-1/3 flex flex-col h-screen border-l border-gray-800 bg-[#171717]">
-          {/* Content panel */}
           <div className="h-1/2 flex flex-col min-h-0">
             <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800">
               <div className="p-4">
@@ -306,7 +303,6 @@ const Graph = ({ data }) => {
             </div>
           </div>
           
-          {/* Ancestry panel */}
           <div className="h-1/2 flex flex-col min-h-0 border-t border-gray-800">
             <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-600 scrollbar-track-gray-800">
               <div className="p-4">
