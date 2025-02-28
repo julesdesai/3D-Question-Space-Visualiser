@@ -3,7 +3,7 @@
       {
         "id": "graph_default",
         "name": "graph_default",
-        "description": "Max repsonses = 100",
+        "description": "",
         "filename": "graph.json"
       },{
         "id": "narrow_60mins_v1",
