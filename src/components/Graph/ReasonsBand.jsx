@@ -5,7 +5,8 @@ import ReasonNode from './ReasonNode';
 const ReasonsBand = ({ 
   data, 
   activePath, 
-  onNodeClick 
+  onNodeClick,
+  onNodeRef  // Add this prop
 }) => {
   // Get all reason nodes
   const reasonNodes = Object.entries(data)
@@ -24,6 +25,7 @@ const ReasonsBand = ({
             data={data}
             isActive={activePath.includes(id)}
             onNodeClick={onNodeClick}
+            onNodeRef={onNodeRef}  // Pass the ref callback
           />
         ))}
       </div>

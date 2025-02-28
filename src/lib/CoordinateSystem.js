@@ -42,6 +42,11 @@ export class CoordinateSystem {
   }
 
   setNodeBounds(nodeId, bounds) {
+    // Now expecting a NodeBounds object directly
+    if (!(bounds instanceof NodeBounds)) {
+      console.warn(`CoordinateSystem: Invalid bounds for node ${nodeId}`, bounds);
+      return;
+    }
     console.log(`CoordinateSystem: Setting bounds for node ${nodeId}`, bounds);
     this.nodes.set(nodeId, bounds);
   }
@@ -60,11 +65,19 @@ export class CoordinateSystem {
   }
 
   toScreen(position) {
+    if (!position || !(position instanceof Vector2D)) {
+      console.warn('Invalid position:', position);
+      return position;
+    }
     const scaled = position.scale(this.scale);
     return scaled.add(this.offset);
   }
 
   toLogical(position) {
+    if (!position || !(position instanceof Vector2D)) {
+      console.warn('Invalid position:', position);
+      return position;
+    }
     const translated = position.subtract(this.offset);
     return translated.scale(1 / this.scale);
   }
@@ -75,6 +88,8 @@ export class CoordinateSystem {
   }
 }
 
+// In CoordinateSystem.js
+
 export class ConnectionManager {
   constructor(coordinateSystem) {
     this.coordinates = coordinateSystem;
@@ -83,24 +98,55 @@ export class ConnectionManager {
 
   setConnection(sourceId, targetId, type = 'default') {
     console.log(`ConnectionManager: Setting up connection ${sourceId} -> ${targetId} (${type})`);
+    if (!sourceId || !targetId) {
+      console.warn('ConnectionManager: Invalid sourceId or targetId', { sourceId, targetId });
+      return;
+    }
+
     const id = `${sourceId}-${targetId}`;
     
     const sourceCenter = this.coordinates.getNodeCenter(sourceId);
     const targetCenter = this.coordinates.getNodeCenter(targetId);
 
     if (!sourceCenter || !targetCenter) {
-      console.warn(`ConnectionManager: Missing centers for connection ${id}`);
+      console.warn(`ConnectionManager: Missing centers for connection ${id}`, {
+        sourceId,
+        targetId,
+        sourceCenter,
+        targetCenter
+      });
       return;
     }
 
-    this.connections.set(id, {
+    const connection = {
       id,
       sourceId,
       targetId,
       type,
       from: sourceCenter,
       to: targetCenter,
-      points: this.calculateManhattanPoints(sourceCenter, targetCenter)
+      points: this.calculateManhattanPoints(sourceCenter, targetCenter),
+      isReason: type === 'reason'
+    };
+
+    console.log('Creating connection:', connection);
+    this.connections.set(id, connection);
+  }
+
+  getScreenConnections() {
+    console.log('Getting screen connections. Total connections:', this.connections.size);
+    return Array.from(this.connections.values()).map(conn => {
+      const screenFrom = this.coordinates.toScreen(conn.from);
+      const screenTo = this.coordinates.toScreen(conn.to);
+      
+      return {
+        sourceId: conn.sourceId,
+        targetId: conn.targetId,
+        from: screenFrom,
+        to: screenTo,
+        isReason: conn.type === 'reason',
+        points: conn.points.map(p => this.coordinates.toScreen(p))
+      };
     });
   }
 
@@ -126,23 +172,9 @@ export class ConnectionManager {
     }
   }
 
-  getScreenConnections() {
-    console.log('ConnectionManager: Getting screen connections');
-    const screenConnections = Array.from(this.connections.values()).map(conn => ({
-      ...conn,
-      from: this.coordinates.toScreen(conn.from),
-      to: this.coordinates.toScreen(conn.to),
-      points: conn.points.map(p => this.coordinates.toScreen(p))
-    }));
-    
-    console.log('Screen connections:', screenConnections);
-    return screenConnections;
-  }
-
   updateNodeConnections(nodeId) {
-    console.log(`ConnectionManager: Updating connections for node ${nodeId}`);
     // Update connections where this node is source or target
-    this.connections.forEach((conn, id) => {
+    this.connections.forEach((conn, connId) => {
       if (conn.sourceId === nodeId || conn.targetId === nodeId) {
         this.setConnection(conn.sourceId, conn.targetId, conn.type);
       }
@@ -150,7 +182,6 @@ export class ConnectionManager {
   }
 
   clear() {
-    console.log('ConnectionManager: Clearing all connections');
     this.connections.clear();
   }
 }

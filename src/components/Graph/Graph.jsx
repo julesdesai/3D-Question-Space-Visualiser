@@ -1,14 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import Node from './Node';
-import ReasonsBand from './ReasonsBand';
-import ManhattanConnections from './ManhattanConnections';
+// Use the FilteredNode component to ensure reason nodes are excluded
+import FilteredNode from './FilteredNode';
+import BasicReasonCloud from './BasicReasonCloud';
 import ContentPanel from '../UI/ContentPanel';
 import AncestryPanel from '../UI/AncestryPanel';
 import { useCoordinateSystem } from '../../hooks/useCoordinateSystem';
+import { Vector2D, NodeBounds } from '../../lib/CoordinateSystem';
 
 const Graph = ({ data }) => {
   const [activePath, setActivePath] = useState([]);
   const [selectedNode, setSelectedNode] = useState(null);
+  // Remove unused selectedNodeId state
   const containerRef = useRef(null);
   const [containerOffset, setContainerOffset] = useState({ x: 0, y: 0 });
   const [scale, setScale] = useState(1);
@@ -41,7 +43,7 @@ const Graph = ({ data }) => {
     return findPath(node.parent_id, [targetId, ...path]);
   }, [data]);
 
-  // Stabilize handleNodeClick
+  // Handle node click
   const handleNodeClick = useCallback((nodeId) => {
     console.log('Node clicked:', nodeId);
     const newPath = findPath(nodeId);
@@ -55,37 +57,80 @@ const Graph = ({ data }) => {
     setSelectedNode(data[nodeId]);
   }, [data, findPath]);
 
-  // Handle node ref and bounds
   const handleNodeRef = useCallback((id, element) => {
-    if (element) {
-      requestAnimationFrame(() => {
-        console.log(`Registering node ${id} with coordinate system`);
-        updateNodeBounds(id, element);
-      });
-    }
+    if (!element || !(element instanceof HTMLElement)) return;
+  
+    const updateNodePosition = () => {
+      try {
+        const rect = element.getBoundingClientRect();
+        const circleElement = element.querySelector('.node-circle');
+        const circleBounds = circleElement?.getBoundingClientRect();
+        
+        if (!circleBounds) return;
+  
+        // Use the circle's center position
+        const position = new Vector2D(
+          circleBounds.left + circleBounds.width / 2,
+          circleBounds.top + circleBounds.height / 2
+        );
+        
+        const nodeBounds = new NodeBounds(
+          position,
+          circleBounds.width,
+          circleBounds.height
+        );
+        
+        updateNodeBounds(id, nodeBounds);
+      } catch (error) {
+        console.error('Error updating node position:', error);
+      }
+    };
+  
+    // Create observer for this element
+    const observer = new ResizeObserver(updateNodePosition);
+    observer.observe(element);
+  
+    // Initial position update
+    requestAnimationFrame(updateNodePosition);
+  
+    // Cleanup
+    return () => observer.disconnect();
   }, [updateNodeBounds]);
 
-  useEffect(() => {
-    console.log('Current connections:', getConnections());
-  }, [getConnections]);
 
-  // Update transform when scale or offset changes
-  useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      updateTransform(scale, containerOffset);
-    }, 0);
-    return () => clearTimeout(timeoutId);
-  }, [scale, containerOffset, updateTransform]);
+// Update transform when scale or offset changes
+useEffect(() => {
+  updateTransform(scale, containerOffset);
+  
+  // Update all node positions after transform changes
+  Object.entries(data).forEach(([id, _]) => {
+    const element = document.querySelector(`[data-node-id="${id}"]`);
+    if (element) {
+      const circleElement = element.querySelector('.node-circle');
+      if (circleElement) {
+        const circleBounds = circleElement.getBoundingClientRect();
+        const position = new Vector2D(
+          circleBounds.left + circleBounds.width / 2,
+          circleBounds.top + circleBounds.height / 2
+        );
+        updateNodeBounds(id, new NodeBounds(position, circleBounds.width, circleBounds.height));
+      }
+    }
+  });
+}, [scale, containerOffset, updateTransform, data, updateNodeBounds]);
 
+  // Handle zoom
   const handleWheel = (e) => {
     e.preventDefault();
     const delta = e.deltaY * -0.001;
     const newScale = Math.min(Math.max(scale + delta, MIN_SCALE), MAX_SCALE);
     
     const container = containerRef.current;
-    const rect = container.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    if (!container) return;
+    
+    const containerRect = container.getBoundingClientRect();
+    const x = e.clientX - containerRect.left;
+    const y = e.clientY - containerRect.top;
     
     const scaleChange = newScale - scale;
     const newX = containerOffset.x - ((x - containerOffset.x) * scaleChange / scale);
@@ -95,6 +140,7 @@ const Graph = ({ data }) => {
     setContainerOffset({ x: newX, y: newY });
   };
 
+  // Handle panning
   const handleMouseDown = (e) => {
     if (e.button !== 0) return;
     setIsDragging(true);
@@ -116,6 +162,7 @@ const Graph = ({ data }) => {
     setIsDragging(false);
   };
 
+  // Set up mouse event listeners
   useEffect(() => {
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
@@ -128,11 +175,11 @@ const Graph = ({ data }) => {
   // Handle initial thesis node selection
   useEffect(() => {
     if (thesisNodes.length > 0 && !selectedNode) {
-      console.log('Selecting initial thesis node:', thesisNodes[0]);
       handleNodeClick(thesisNodes[0]);
     }
   }, [thesisNodes, handleNodeClick, selectedNode]);
 
+  // Handle keyboard navigation
   const handleKeyNavigation = useCallback((e) => {
     if (!selectedNode) return;
 
@@ -186,8 +233,21 @@ const Graph = ({ data }) => {
     return () => window.removeEventListener('keydown', handleKeyNavigation);
   }, [handleKeyNavigation]);
 
-  // Get current connections
-  const connections = getConnections();
+  // We're not using connections in this version, but getting them for future use
+  getConnections();
+
+// We've removed the initial setup of reason connections as requested
+// This will be addressed in a future update
+useEffect(() => {
+  // Wait for nodes to be registered
+  if (!data) return;
+
+  console.log('Setting up initial connections');
+  resetConnections();
+  
+  // No reason node connections - reasons are only shown in the cloud
+  // but not in the dialectical chain
+}, [data, resetConnections]);
 
   return (
     <div className="h-screen w-full flex bg-[#171717]">
@@ -199,19 +259,12 @@ const Graph = ({ data }) => {
           style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
         >
           <div className="w-full h-full overflow-hidden">
-            {/* Question in header */}
-            <div className="absolute top-4 left-0 right-0 text-center">
-              <h1 className="text-2xl font-serif text-neutral-200">
+            {/* Question in header - moved outside the transform to keep in foreground */}
+            <div className="fixed top-20 left-0 right-0 text-center z-20">
+              <h1 className="text-2xl font-serif text-neutral-200 bg-[#171717] bg-opacity-80 px-4 py-2 inline-block rounded-lg">
                 {questionNode?.[1].summary}
               </h1>
             </div>
-
-            {/* Connections */}
-            <ManhattanConnections 
-              connections={connections}
-              scale={scale}
-              offset={containerOffset}
-            />
 
             {/* Main content with zoom/pan */}
             <div
@@ -222,27 +275,32 @@ const Graph = ({ data }) => {
               }}
             >
               <div className="h-full p-8 pt-24">
-                <div className="flex flex-col items-center">
-                  {/* Reasons band */}
-                  <ReasonsBand
-                    data={data}
-                    activePath={activePath}
-                    onNodeClick={handleNodeClick}
-                    onNodeRef={handleNodeRef}
-                  />
+                <div className="flex flex-col items-center relative">
+                  {/* Connections removed as requested */}
+                  {/* We'll address connections in a future update */}
 
                   {/* Thesis nodes and their descendants */}
                   <div className="flex gap-12">
                     {thesisNodes.map(id => (
-                      <Node
-                        key={id}
-                        id={id}
-                        data={data}
-                        onNodeClick={handleNodeClick}
-                        activePath={activePath}
-                        depth={0}
-                        onNodeRef={handleNodeRef}
-                      />
+                      <div key={id} className="flex flex-col items-center relative">
+                        {/* We position the basic reason cloud directly above the thesis node */}
+                        <div className="relative" style={{ position: "relative" }}>
+                          <BasicReasonCloud
+                            data={data}
+                            thesisId={id}
+                            activePath={activePath}
+                            onNodeClick={handleNodeClick}
+                          />
+                          <FilteredNode
+                            id={id}
+                            data={data}
+                            onNodeClick={handleNodeClick}
+                            activePath={activePath}
+                            depth={0}
+                            onNodeRef={handleNodeRef}
+                          />
+                        </div>
+                      </div>
                     ))}
                   </div>
                 </div>

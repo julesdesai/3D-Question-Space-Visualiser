@@ -7,24 +7,25 @@ export function useCoordinateSystem(graphData) {
   const coordSystemRef = useRef(null);
   const connectionManagerRef = useRef(null);
 
-  // Initialize systems if they don't exist
-  if (!coordSystemRef.current) {
-    console.log('Initializing coordinate system');
-    coordSystemRef.current = new CoordinateSystem();
-  }
-  if (!connectionManagerRef.current) {
-    console.log('Initializing connection manager');
-    connectionManagerRef.current = new ConnectionManager(coordSystemRef.current);
-  }
+  // Initialize systems in an effect to ensure consistent initialization
+  useEffect(() => {
+    if (!coordSystemRef.current) {
+      console.log('Initializing coordinate system');
+      coordSystemRef.current = new CoordinateSystem();
+    }
+    if (!connectionManagerRef.current) {
+      console.log('Initializing connection manager');
+      connectionManagerRef.current = new ConnectionManager(coordSystemRef.current);
+    }
+  }, []); // Empty dependency array means this runs once on mount
 
   // Update node bounds in the coordinate system
-  const updateNodeBounds = useCallback((nodeId, element) => {
-    if (!element) return;
-
-    const rect = element.getBoundingClientRect();
-    const position = new Vector2D(rect.left, rect.top);
-    const bounds = new NodeBounds(position, rect.width, rect.height);
-    
+  const updateNodeBounds = useCallback((nodeId, bounds) => {
+    if (!coordSystemRef.current) return;
+    if (!bounds || !(bounds instanceof NodeBounds)) {
+      console.warn('Invalid bounds object received:', bounds); 
+      return;
+    }
     console.log(`Setting bounds for node ${nodeId}:`, bounds);
     coordSystemRef.current.setNodeBounds(nodeId, bounds);
 
@@ -36,50 +37,60 @@ export function useCoordinateSystem(graphData) {
 
   // Update transform (scale and offset)
   const updateTransform = useCallback((scale, offset) => {
+    if (!coordSystemRef.current) return;
+    if (typeof scale !== 'number' || !offset || typeof offset.x !== 'number' || typeof offset.y !== 'number') {
+      console.warn('Invalid transform parameters:', { scale, offset });
+      return;
+    }
     coordSystemRef.current.updateTransform(scale, new Vector2D(offset.x, offset.y));
   }, []);
 
   // Set up a connection between nodes
-  const setConnection = useCallback((sourceId, targetId, type) => {
-    console.log(`Setting up ${type} connection from ${sourceId} to ${targetId}`);
-    connectionManagerRef.current.setConnection(sourceId, targetId, type);
+  const setConnection = useCallback(({ sourceId, targetId, isReason }) => {
+    if (!connectionManagerRef.current || !coordSystemRef.current) return;
+    
+    console.log('Setting up connection:', { sourceId, targetId, isReason });
+    if (!sourceId || !targetId) {
+      console.warn('Invalid connection parameters:', { sourceId, targetId });
+      return;
+    }
+
+    const sourceNode = coordSystemRef.current.getNodeBounds(sourceId);
+    const targetNode = coordSystemRef.current.getNodeBounds(targetId);
+    
+    if (!sourceNode || !targetNode) {
+      console.warn('Missing node bounds for connection:', {
+        sourceId,
+        targetId,
+        sourceExists: !!sourceNode,
+        targetExists: !!targetNode
+      });
+      return;
+    }
+
+    connectionManagerRef.current.setConnection(sourceId, targetId, isReason ? 'reason' : 'identical');
   }, []);
 
   // Reset all connections
   const resetConnections = useCallback(() => {
+    if (!connectionManagerRef.current) return;
     console.log('Resetting all connections');
     connectionManagerRef.current.clear();
   }, []);
 
-  // Initialize connections when graph data changes
-  useEffect(() => {
-    console.log('Setting up initial connections');
-    resetConnections();
-
-    // Set up reason connections
-    Object.entries(graphData)
-      .filter(([_, node]) => node.node_type === 'reason')
-      .forEach(([id, node]) => {
-        console.log(`Creating reason connection: ${id} -> ${node.parent_id}`);
-        setConnection(id, node.parent_id, 'reason');
-      });
-
-    // Set up identical connections
-    Object.entries(graphData)
-      .filter(([_, node]) => node.identical_to)
-      .forEach(([id, node]) => {
-        console.log(`Creating identical connection: ${id} -> ${node.identical_to}`);
-        setConnection(id, node.identical_to, 'identical');
-      });
-  }, [graphData, setConnection, resetConnections]);
-
   // Get current connections
   const getConnections = useCallback(() => {
+    if (!connectionManagerRef.current) {
+      console.warn('Connection manager not initialized');
+      return [];
+    }
     const connections = connectionManagerRef.current.getScreenConnections();
-    console.log('Current connections:', connections);
+    console.log('Getting screen connections:', connections);
     return connections;
   }, []);
 
+  // No cleanup needed as we want to persist the refs throughout component lifecycle
+  
   return {
     updateNodeBounds,
     updateTransform,

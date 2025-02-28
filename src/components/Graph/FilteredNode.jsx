@@ -12,7 +12,7 @@ const getNodePrefix = (nodeType) => {
   }
 };
 
-const Node = ({ 
+const FilteredNode = ({ 
   id,
   data, 
   onNodeClick, 
@@ -63,19 +63,19 @@ const Node = ({
     }
   }, [id, activePath, data, onIdenticalConnection]);
 
-  // Get child nodes (excluding reason nodes)
-  const childNodes = Object.entries(data).filter(([_, nodeData]) => 
-    nodeData.parent_id === id && nodeData.node_type !== 'reason'
+  // Skip rendering if this is a reason node
+  if (data[id]?.node_type === 'reason') {
+    return null;
+  }
+
+  // Get child nodes - EXCLUDING reason nodes
+  const childNodes = Object.entries(data).filter(([_, node]) => 
+    node.parent_id === id && node.node_type !== 'reason'
   );
 
   const isInPath = activePath.includes(id);
   const parentId = data[id]?.parent_id;
-  
-  // Only show if it's not a reason node and if it's in the viewing path
-  const shouldShow = 
-    (data[id]?.node_type !== 'reason') && // Never show reason nodes in the chain
-    (depth === 0 || isInPath || (parentId && activePath.includes(parentId)));
-    
+  const shouldShow = depth === 0 || isInPath || (parentId && activePath.includes(parentId));
   const showLabel = isInPath;
   const isNonsense = data[id]?.nonsense;
   const identicalTo = data[id]?.identical_to;
@@ -128,7 +128,7 @@ const Node = ({
         <div className="mt-8 flex flex-col items-center">
           <div className="flex gap-12">
             {childNodes.map(([childId]) => (
-              <Node
+              <FilteredNode
                 key={childId}
                 id={childId}
                 data={data}
@@ -146,4 +146,4 @@ const Node = ({
   );
 };
 
-export default Node;
+export default FilteredNode;
