@@ -1,6 +1,6 @@
 // src/App.js
 import React, { useState, useEffect } from 'react';
-import Graph from './components/Graph/Graph';
+import OptimizedGraph from './components/Graph/OptimizedGraph';
 import './styles/App.css';
 
 function App() {
@@ -9,7 +9,6 @@ function App() {
   const [graphData, setGraphData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [selectedNode, setSelectedNode] = useState(null);
 
   // Get the base URL dynamically
   const baseUrl = process.env.PUBLIC_URL || '/3D-Question-Space-Visualiser';
@@ -71,80 +70,6 @@ function App() {
     loadGraphData();
   }, [selectedGraph, baseUrl]);
 
-  // Handle keyboard navigation
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if (!graphData || !selectedNode) return;
-
-      const navigationKeys = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'c', 'C'];
-      
-      if (navigationKeys.includes(e.key)) {
-        e.preventDefault();
-
-        const currentId = Object.entries(graphData)
-          .find(([_, n]) => n === selectedNode)?.[0];
-
-        if (!currentId) return;
-
-        let nextId = null;
-
-        switch (e.key) {
-          case 'ArrowUp': {
-            const parent = graphData[currentId]?.parent_id;
-            if (parent) {
-              nextId = parent;
-            }
-            break;
-          }
-          case 'ArrowDown': {
-            const children = Object.entries(graphData)
-              .filter(([_, n]) => n.parent_id === currentId)
-              .map(([id]) => id);
-            if (children.length > 0) {
-              nextId = children[0];
-            }
-            break;
-          }
-          case 'ArrowLeft':
-          case 'ArrowRight': {
-            const siblings = Object.entries(graphData)
-              .filter(([_, n]) => n.parent_id === graphData[currentId]?.parent_id)
-              .map(([id]) => id);
-            const currentIndex = siblings.indexOf(currentId);
-            if (currentIndex !== -1) {
-              const newIndex = e.key === 'ArrowLeft'
-                ? (currentIndex - 1 + siblings.length) % siblings.length
-                : (currentIndex + 1) % siblings.length;
-              nextId = siblings[newIndex];
-            }
-            break;
-          }
-          case 'c':
-          case 'C': {
-            const rootNode = Object.entries(graphData)
-              .find(([_, n]) => n.parent_id === null);
-            if (rootNode) {
-              nextId = rootNode[0];
-            }
-            break;
-          }
-          default:
-            break;
-        }
-
-        if (nextId) {
-          setSelectedNode(graphData[nextId]);
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown, { passive: false });
-
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [graphData, selectedNode]);
-
   if (error) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
@@ -157,15 +82,15 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#171717]">
+    <div className="min-h-screen bg-white">
       {/* Graph selector */}
-      <div className="p-4 border-b border-gray-800">
+      <div className="p-4 border-b border-gray-200">
         <div className="flex flex-col space-y-2 max-w-xl mx-auto">
           <select 
             value={selectedGraph || ''} 
             onChange={(e) => setSelectedGraph(e.target.value)}
-            className="bg-gray-800 text-white px-4 py-2 rounded-md border border-gray-700 
-                      hover:border-gray-600 focus:border-pink-500 focus:outline-none
+            className="bg-white text-gray-800 px-4 py-2 rounded-md border border-gray-300 
+                      hover:border-gray-400 focus:border-blue-500 focus:outline-none
                       transition-colors duration-200"
             style={{ fontFamily: 'Crimson Text, Georgia, serif' }}
           >
@@ -179,7 +104,7 @@ function App() {
           
           {selectedGraph && (
             <div 
-              className="text-gray-400 text-sm px-1"
+              className="text-gray-600 text-sm px-1"
               style={{ fontFamily: 'Crimson Text, Georgia, serif' }}
             >
               {graphs.find(g => g.filename === selectedGraph)?.description}
@@ -191,7 +116,7 @@ function App() {
       {/* Loading state */}
       {loading ? (
         <div className="flex items-center justify-center h-[calc(100vh-64px)]">
-          <div className="text-gray-400 flex items-center">
+          <div className="text-gray-600 flex items-center">
             <div>Loading graph data...</div>
             <svg className="animate-spin h-5 w-5 ml-3" viewBox="0 0 24 24">
               <circle 
@@ -213,10 +138,7 @@ function App() {
         </div>
       ) : (
         graphData && (
-          <Graph 
-            data={graphData} 
-            onNodeSelect={setSelectedNode}
-          />
+          <OptimizedGraph data={graphData} />
         )
       )}
     </div>

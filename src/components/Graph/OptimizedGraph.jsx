@@ -1,0 +1,504 @@
+// src/components/Graph/OptimizedGraph.jsx
+import { useState, useEffect, useRef, useCallback } from 'react';
+import EnhancedNode from './EnhancedNode';
+import GraphConnections from './GraphConnections';
+import ContentPanel from '../UI/ContentPanel';
+import AncestryPanel from '../UI/AncestryPanel';
+import { useCoordinateSystem } from '../../hooks/useCoordinateSystem';
+import { Vector2D, NodeBounds } from '../../lib/CoordinateSystem';
+import { 
+  computeGraphLayout, 
+  detectAndResolveCollisions, 
+  normalizeLayout,
+  addSpacingBetweenNodes 
+} from '../../lib/graphLayout';
+
+const OptimizedGraph = ({ data }) => {
+  const [activePath, setActivePath] = useState([]);
+  const [selectedNode, setSelectedNode] = useState(null);
+  const [connections, setConnections] = useState([]);
+  const [nodePositions, setNodePositions] = useState({});
+  const [layoutComputed, setLayoutComputed] = useState(false);
+  const [isPanelVisible, setIsPanelVisible] = useState(true);
+  
+  const containerRef = useRef(null);
+  const [containerOffset, setContainerOffset] = useState({ x: 0, y: 0 });
+  const [scale, setScale] = useState(0.7);
+  const [isDragging, setIsDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  
+  // Store node DOM elements by ID
+  const nodeRefs = useRef({});
+  const circleRefs = useRef({});
+
+  // Initialize coordinate system
+  const {
+    updateNodeBounds,
+    updateTransform,
+    resetConnections
+  } = useCoordinateSystem(data);
+
+  const MIN_SCALE = 0.1;
+  const MAX_SCALE = 3;
+
+  // Find the root node
+  const rootNode = Object.entries(data || {}).find(([_, node]) => node.parent_id === null);
+  // eslint-disable-next-line no-unused-vars
+  const rootId = rootNode ? rootNode[0] : null;
+  
+  // Create a stable reference for findPath
+  const findPath = useCallback((targetId, path = []) => {
+    if (!targetId) return path;
+    const node = data[targetId];
+    if (!node) return path;
+    return findPath(node.parent_id, [targetId, ...path]);
+  }, [data]);
+
+  // Utility function for creating connections - defined outside callbacks
+  const createConnections = () => {
+    if (!data || !layoutComputed || !nodePositions) {
+      console.log("Cannot create connections - missing data:", {
+        hasData: !!data,
+        layoutComputed,
+        hasNodePositions: !!nodePositions
+      });
+      return [];
+    }
+    
+    const newConnections = [];
+    
+    // Create connections for all parent-child relationships
+    Object.entries(data).forEach(([childId, node]) => {
+      const parentId = node.parent_id;
+      
+      // Skip root node (as it has no parent)
+      if (!parentId) return;
+      
+      // Skip reason nodes if requested - we're still including them for now
+      // if (node.node_type === 'reason') return;
+      
+      // Skip if either node position is not available
+      if (!nodePositions[parentId] || !nodePositions[childId]) {
+        console.log(`Missing node position for connection ${parentId} -> ${childId}`);
+        return;
+      }
+      
+      // Create connection based on the computed layout positions
+      const sourcePos = {
+        x: nodePositions[parentId].x,
+        y: nodePositions[parentId].y
+      };
+      
+      const targetPos = {
+        x: nodePositions[childId].x,
+        y: nodePositions[childId].y
+      };
+      
+      // Create the connection
+      newConnections.push({
+        from: sourcePos,
+        to: targetPos,
+        sourceId: parentId,
+        targetId: childId,
+        isReason: node.node_type === 'reason'
+      });
+    });
+    
+    console.log(`Created ${newConnections.length} connections`);
+    return newConnections;
+  };
+
+  // Function to update connections - using useRef for stable reference
+  const updateConnectionsRef = useRef(() => {
+    console.log("Updating connections with:", {
+      hasData: !!data,
+      layoutComputed,
+      numPositions: nodePositions ? Object.keys(nodePositions).length : 0
+    });
+    
+    const newConnections = createConnections();
+    setConnections(newConnections);
+  });
+  
+  // Make sure updateConnectionsRef.current uses the latest state/props
+  useEffect(() => {
+    updateConnectionsRef.current = () => {
+      console.log("Updating connections with latest state:", {
+        hasData: !!data,
+        layoutComputed,
+        numPositions: nodePositions ? Object.keys(nodePositions).length : 0 
+      });
+      
+      const newConnections = createConnections();
+      if (newConnections.length > 0) {
+        console.log(`Setting ${newConnections.length} connections`);
+        setConnections(newConnections);
+      } else {
+        console.warn("No connections created!");
+      }
+    };
+  }, [data, layoutComputed, nodePositions]);
+
+  // Handle node click
+  const handleNodeClick = useCallback((nodeId) => {
+    if (!data[nodeId]) return;
+    
+    const newPath = findPath(nodeId);
+    setActivePath(newPath);
+    setSelectedNode(data[nodeId]);
+    
+    // Use the ref version for stable reference
+    setTimeout(() => {
+      updateConnectionsRef.current();
+    }, 10);
+  }, [data, findPath]);
+
+  // Save reference to node circle element
+  const saveCircleRef = useCallback((id, element) => {
+    if (element) {
+      circleRefs.current[id] = element;
+    }
+  }, []);
+
+  // Compute optimal layout for the graph
+  useEffect(() => {
+    if (!data || Object.keys(data).length === 0) return;
+    
+    console.log('Computing optimal graph layout...');
+    try {
+      // Compute layout using the parent-centered approach that stacks reasons directly above parents
+      const initialLayout = computeGraphLayout(data);
+      
+      // Detect and resolve any remaining collisions
+      const resolvedLayout = detectAndResolveCollisions(initialLayout, data, 650, 450);
+      
+      // Apply additional spacing to prevent overlaps
+      const spacedLayout = addSpacingBetweenNodes(resolvedLayout, 1.2);
+      
+      // Normalize layout to fit within view
+      const { positions: normalizedLayout } = normalizeLayout(spacedLayout);
+      
+      setNodePositions(normalizedLayout);
+      setLayoutComputed(true);
+      
+      // Find and select question node (but don't display it)
+      const questionNode = Object.entries(data).find(([_, node]) => node.node_type === 'question');
+      if (questionNode && !selectedNode) {
+        handleNodeClick(questionNode[0]);
+      }
+    } catch (err) {
+      console.error('Error computing layout:', err);
+    }
+  }, [data, selectedNode, handleNodeClick]);
+
+  // Update node references for position tracking
+  const handleNodeRef = useCallback((id, element) => {
+    if (!element || !(element instanceof HTMLElement) || !layoutComputed) return;
+    
+    // Store reference to node element
+    nodeRefs.current[id] = element;
+  
+    const updateNodePosition = () => {
+      try {
+        const rect = element.getBoundingClientRect();
+        
+        // Find the image part for connecting lines (or fall back to center of node)
+        const imageElement = element.querySelector('.node-circle');
+        let position;
+        
+        if (imageElement) {
+          const imageRect = imageElement.getBoundingClientRect();
+          position = new Vector2D(
+            imageRect.left + imageRect.width / 2,
+            imageRect.top + imageRect.height / 2
+          );
+        } else {
+          position = new Vector2D(
+            rect.left + rect.width / 2,
+            rect.top + rect.height / 2
+          );
+        }
+        
+        const nodeBounds = new NodeBounds(
+          position,
+          rect.width,
+          rect.height
+        );
+        
+        updateNodeBounds(id, nodeBounds);
+      } catch (error) {
+        console.error('Error updating node position:', error);
+      }
+    };
+  
+    // Use ResizeObserver to track size/position changes
+    const observer = new ResizeObserver(updateNodePosition);
+    observer.observe(element);
+  
+    // Initial position update
+    requestAnimationFrame(updateNodePosition);
+  
+    return () => observer.disconnect();
+  }, [updateNodeBounds, layoutComputed]);
+
+  // Update transform when scale or offset changes
+  useEffect(() => {
+    updateTransform(scale, containerOffset);
+    
+    // Schedule connection update after transform update
+    if (layoutComputed) {
+      const timer = setTimeout(() => {
+        updateConnectionsRef.current();
+      }, 100);
+      
+      return () => clearTimeout(timer);
+    }
+  }, [scale, containerOffset, updateTransform, layoutComputed]);
+
+  // Update connections when nodePositions change
+  useEffect(() => {
+    if (layoutComputed && nodePositions) {
+      updateConnectionsRef.current();
+    }
+  }, [nodePositions, layoutComputed]);
+
+  // Initial view setup
+  useEffect(() => {
+    if (!containerRef.current || !layoutComputed) return;
+    
+    // Center the graph in the view
+    const containerWidth = containerRef.current.clientWidth;
+    const containerHeight = containerRef.current.clientHeight;
+    
+    setContainerOffset({
+      x: containerWidth / 2,
+      y: containerHeight / 4 // Position toward the top to see more of the vertical structure
+    });
+    
+    setScale(0.25); // Zoom out more to see the increased vertical spacing
+    
+    resetConnections();
+    
+    // Add a slight delay to ensure nodes are positioned before updating connections
+    const timer = setTimeout(() => {
+      updateConnectionsRef.current();
+    }, 300);
+    
+    return () => clearTimeout(timer);
+  }, [layoutComputed, resetConnections]);
+
+  // Handle zoom
+  const handleWheel = (e) => {
+    e.preventDefault();
+    const delta = e.deltaY * -0.001;
+    const newScale = Math.min(Math.max(scale + delta, MIN_SCALE), MAX_SCALE);
+    
+    const container = containerRef.current;
+    if (!container) return;
+    
+    const containerRect = container.getBoundingClientRect();
+    const x = e.clientX - containerRect.left;
+    const y = e.clientY - containerRect.top;
+    
+    const scaleChange = newScale / scale;
+    
+    // Zoom centered on cursor position
+    const newX = x - (x - containerOffset.x) * scaleChange;
+    const newY = y - (y - containerOffset.y) * scaleChange;
+    
+    setScale(newScale);
+    setContainerOffset({ x: newX, y: newY });
+  };
+
+  // Handle panning
+  const handleMouseDown = (e) => {
+    if (e.button !== 0) return;
+    setIsDragging(true);
+    setDragStart({
+      x: e.clientX - containerOffset.x,
+      y: e.clientY - containerOffset.y
+    });
+  };
+
+  const handleMouseMove = useCallback((e) => {
+    if (!isDragging) return;
+    setContainerOffset({
+      x: e.clientX - dragStart.x,
+      y: e.clientY - dragStart.y
+    });
+  }, [isDragging, dragStart]);
+
+  const handleMouseUp = () => {
+    setIsDragging(false);
+  };
+
+  // Update connections after zooming or panning completes
+  useEffect(() => {
+    if (isDragging) return;
+    
+    const timer = setTimeout(() => {
+      updateConnectionsRef.current();
+    }, 100);
+    
+    return () => clearTimeout(timer);
+  }, [isDragging]);
+
+  // Set up mouse event listeners
+  useEffect(() => {
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [handleMouseMove]);
+
+  return (
+    <div className="h-screen w-full flex bg-white">
+      <div className="relative flex-1 overflow-hidden">
+        {/* Main graph area */}
+        <div 
+          className="absolute inset-0"
+          ref={containerRef}
+          onMouseDown={handleMouseDown}
+          onWheel={handleWheel}
+          style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
+        >
+          {/* Connection lines and nodes */}
+          <div
+            className="w-full h-full"
+            style={{ 
+              transform: `translate(${containerOffset.x}px, ${containerOffset.y}px) scale(${scale})`,
+              transformOrigin: '0 0',
+              transition: isDragging ? 'none' : 'transform 0.1s ease-out',
+              position: 'relative'
+            }}
+          >
+            {/* Connection lines - rendered before nodes to be underneath */}
+            {connections.length > 0 && <GraphConnections connections={connections} />}
+            
+            {/* Render nodes based on computed positions */}
+            {layoutComputed && Object.entries(nodePositions).map(([nodeId, position]) => {
+              // Skip the question node
+              if (data[nodeId]?.node_type === 'question') {
+                return null;
+              }
+              
+              return (
+                <div
+                  key={nodeId}
+                  style={{
+                    position: 'absolute',
+                    left: `${position.x}px`,
+                    top: `${position.y}px`,
+                    transform: 'translate(-50%, -50%)', // Center the node
+                  }}
+                >
+                  <EnhancedNode
+                    id={nodeId}
+                    data={data}
+                    onNodeClick={handleNodeClick}
+                    activePath={activePath}
+                    onNodeRef={handleNodeRef}
+                    onCircleRef={(element) => saveCircleRef(nodeId, element)}
+                  />
+                </div>
+              );
+            })}
+          </div>
+          
+          {/* Toggle panel button */}
+          <button
+            className="fixed top-5 right-5 bg-white border border-gray-200 text-gray-700 px-3 py-1 rounded-lg hover:bg-gray-50 text-sm z-10 shadow-md"
+            onClick={() => setIsPanelVisible(!isPanelVisible)}
+          >
+            {isPanelVisible ? '≫ Hide Panel' : '≪ Show Panel'}
+          </button>
+          
+          {/* Controls */}
+          <div className="fixed bottom-5 left-5 bg-white p-4 rounded-lg shadow-lg z-10 flex flex-col gap-2">
+            <div className="text-sm font-medium text-gray-700">Navigation Controls</div>
+            <div className="text-xs text-gray-600">Click and drag to pan</div>
+            <div className="text-xs text-gray-600">Scroll to zoom in/out</div>
+            <div className="flex gap-2 mt-2">
+              <button 
+                className="bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-1 rounded-md text-sm"
+                onClick={() => setScale(prev => Math.min(prev + 0.1, MAX_SCALE))}
+              >
+                +
+              </button>
+              <button 
+                className="bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-1 rounded-md text-sm"
+                onClick={() => setScale(prev => Math.max(prev - 0.1, MIN_SCALE))}
+              >
+                -
+              </button>
+              <button 
+                className="bg-gray-100 hover:bg-gray-200 text-gray-800 px-3 py-1 rounded-md text-sm"
+                onClick={() => {
+                  if (containerRef.current) {
+                    const containerWidth = containerRef.current.clientWidth;
+                    const containerHeight = containerRef.current.clientHeight;
+                    setContainerOffset({
+                      x: containerWidth / 2,
+                      y: containerHeight / 2
+                    });
+                    setScale(0.7);
+                    
+                    // Update connections after reset
+                    setTimeout(() => {
+                      updateConnectionsRef.current();
+                    }, 100);
+                  }
+                }}
+              >
+                Reset
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      {/* Side panel with toggle functionality */}
+      {selectedNode && isPanelVisible && (
+        <div className="w-1/3 flex flex-col h-screen border-l border-gray-200 bg-white transition-all duration-300">
+          <div className="p-4 border-b border-gray-200 bg-gray-50">
+            <h2 className="text-xl font-serif text-gray-800">{selectedNode.summary}</h2>
+            <div className="flex gap-2 mt-2">
+              <div className="text-xs px-2 py-1 bg-gray-200 rounded-full text-gray-700">
+                {selectedNode.node_type}
+              </div>
+              {selectedNode.nonsense && (
+                <div className="text-xs px-2 py-1 bg-red-100 rounded-full text-red-700">
+                  Nonsense
+                </div>
+              )}
+              {selectedNode.identical_to && (
+                <div className="text-xs px-2 py-1 bg-blue-100 rounded-full text-blue-700">
+                  Identical to another node
+                </div>
+              )}
+            </div>
+          </div>
+          
+          <div className="flex-1 overflow-auto p-6">
+            <div className="prose max-w-none">
+              <ContentPanel node={selectedNode} />
+            </div>
+          </div>
+          
+          <div className="h-1/3 border-t border-gray-200 overflow-auto">
+            <div className="p-4 bg-gray-50">
+              <h3 className="text-lg font-serif text-gray-800">Ancestry Path</h3>
+            </div>
+            <div className="p-4">
+              <AncestryPanel node={selectedNode} graphData={data} />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default OptimizedGraph;
